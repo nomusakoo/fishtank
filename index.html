@@ -229,6 +229,7 @@
         <div class="prediction-box">
           종류: <span id="fish-info-species"></span><br>
           유전 특성: <span id="fish-info-genetics"></span><br>
+          성격: <span id="fish-info-personality"></span><br>
           나이: <span id="fish-info-age"></span><br>
           상태(컨디션): <span id="fish-info-condition"></span><br>
           출품 시 예상 가격: <span id="fish-info-price"></span>
@@ -545,15 +546,38 @@
     };
 
     // Real ornamental fish species catalog, priced roughly like real fry prices (원)
+    // `palette` lists real-world color morphs for each species; each individual fish randomly
+    // gets one at birth (persisted), so a tank of the same species actually looks varied instead
+    // of every guppy being identical blue. `hex`/`name` stay as the default/fallback variant.
     const FISH_SPECIES = {
-      GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY' },
-      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'MOLLY' },
-      NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA' },
-      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'CORY' },
-      BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA' },
-      ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL' },
-      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'DISCUS' }
+      GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY',
+        palette: [ {hex:0x38bdf8,name:'블루'}, {hex:0xf43f5e,name:'레드'}, {hex:0xfacc15,name:'옐로우'}, {hex:0x10b981,name:'그린'}, {hex:0x334155,name:'블랙'} ] },
+      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'MOLLY',
+        palette: [ {hex:0x1e293b,name:'블랙'}, {hex:0xf59e0b,name:'골드'}, {hex:0xf8fafc,name:'실버'}, {hex:0xfbbf24,name:'달마시안'} ] },
+      NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA',
+        palette: [ {hex:0x3b82f6,name:'블루'}, {hex:0xef4444,name:'카디널'}, {hex:0xf97316,name:'오렌지'} ] },
+      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'CORY',
+        palette: [ {hex:0x94a3b8,name:'브론즈'}, {hex:0xfda4af,name:'알비노'}, {hex:0x64748b,name:'페퍼드'} ] },
+      BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA',
+        palette: [ {hex:0xa855f7,name:'퍼플'}, {hex:0xef4444,name:'레드'}, {hex:0x3b82f6,name:'블루'}, {hex:0xf8fafc,name:'화이트'}, {hex:0xfbbf24,name:'옐로우'}, {hex:0xfb7185,name:'캄보디안'} ] },
+      ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL',
+        palette: [ {hex:0xe2e8f0,name:'실버'}, {hex:0x1e293b,name:'블랙레이스'}, {hex:0xfbbf24,name:'골드마블'}, {hex:0xf8fafc,name:'화이트'} ] },
+      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'DISCUS',
+        palette: [ {hex:0xfb7185,name:'레드'}, {hex:0x3b82f6,name:'블루'}, {hex:0x22c55e,name:'그린'}, {hex:0xfbbf24,name:'골드'}, {hex:0xf8fafc,name:'피죤블러드'} ] }
     };
+
+    // Individual behavioral traits, randomly assigned per fish, layered on top of the species'
+    // baseline temperament — real fish (even within one species) vary in boldness/activity level.
+    const PERSONALITY = {
+      ACTIVE:     { label: '활발함',     speedMult: 1.15, aggressionDelta: 0,  pauseChance: 0.0008, burstChance: 0.005 },
+      TIMID:      { label: '소심함',     speedMult: 0.95, aggressionDelta: -2, pauseChance: 0.0035, burstChance: 0.001, startleMult: 1.6 },
+      DOCILE:     { label: '온순함',     speedMult: 1.0,  aggressionDelta: -1, pauseChance: 0.0015, burstChance: 0.003 },
+      AGGRESSIVE: { label: '공격적',     speedMult: 1.05, aggressionDelta: 2,  pauseChance: 0.0010, burstChance: 0.004 },
+      CURIOUS:    { label: '호기심많음', speedMult: 1.1,  aggressionDelta: 0,  pauseChance: 0.0006, burstChance: 0.006 },
+      LAZY:       { label: '느긋함',     speedMult: 0.8,  aggressionDelta: -1, pauseChance: 0.0045, burstChance: 0.002 }
+    };
+    const PERSONALITY_KEYS = Object.keys(PERSONALITY);
+    function randomPersonality() { return PERSONALITY_KEYS[Math.floor(Math.random()*PERSONALITY_KEYS.length)]; }
 
     // Real-ish temperament: aggression (0-10) and relative size, used for fights/predation.
     // e.g. Betta are notoriously territorial; larger cichlids like Angelfish/Discus will eat small tetras.
@@ -706,7 +730,11 @@
         this.tier = rarity.key;
         this.value = Math.round(species.basePrice * rarity.mult);
         this.traitLabel = traitLabel(this.genotype);
-        this.name = species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
+        const palette = species.palette || [{ hex: species.hex, name: '' }];
+        this.colorVariantIndex = typeof restore.colorVariantIndex === 'number' ? restore.colorVariantIndex : Math.floor(Math.random()*palette.length);
+        const colorVariant = palette[this.colorVariantIndex] || palette[0];
+        this.personality = restore.personality && PERSONALITY[restore.personality] ? restore.personality : randomPersonality();
+        this.name = (colorVariant.name ? colorVariant.name + ' ' : '') + species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
         this.hunger = typeof restore.hunger === 'number' ? restore.hunger : 100;
         this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : this.value;
         // Fish restored without a recorded birth time (older saves) are treated as already grown,
@@ -724,7 +752,7 @@
         const colorScore = locusScore(this.genotype.color);
         const patternScore = locusScore(this.genotype.pattern);
         const finScore = locusScore(this.genotype.fin);
-        const hex = colorScore > 0 ? lightenColor(species.hex, colorScore * 0.3) : species.hex;
+        const hex = colorScore > 0 ? lightenColor(colorVariant.hex, colorScore * 0.3) : colorVariant.hex;
         const metalness = [0.2, 0.55, 0.9][patternScore];
         const emissiveIntensity = [0, 0.2, 0.4][patternScore];
         const bodyMat = new THREE.MeshStandardMaterial({
@@ -780,7 +808,7 @@
 
         this.pos = new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*4, (Math.random()-0.5)*5);
         this.vel = new THREE.Vector3((Math.random()-0.5)*0.02, (Math.random()-0.5)*0.01, (Math.random()-0.5)*0.02);
-        this.maxSpeed = 0.025 + Math.random()*0.02;
+        this.maxSpeed = (0.025 + Math.random()*0.02) * PERSONALITY[this.personality].speedMult;
         this.turnRate = 0.006 + Math.random()*0.004;
         this.bottomDweller = !!sp.bottomDweller;
         this.wanderTarget = randomTankPoint(this.bottomDweller);
@@ -880,13 +908,14 @@
         // Real fish alternate quick darts, steady cruising, and brief still pauses rather than
         // moving at one constant speed. A short random "burst" occasionally multiplies top speed,
         // and (when not chasing food) a rest phase drops it to near-zero for a beat.
+        const personality = PERSONALITY[this.personality];
         this._burstTimer = (this._burstTimer || 0) - 1;
         if (this._burstTimer <= 0) {
           this._burstMultiplier = 1;
-          if (Math.random() < 0.003) { this._burstMultiplier = 2.2 + Math.random()*0.8; this._burstTimer = 20 + Math.random()*20; }
+          if (Math.random() < personality.burstChance) { this._burstMultiplier = 2.2 + Math.random()*0.8; this._burstTimer = 20 + Math.random()*20; }
         }
         this._pauseTimer = (this._pauseTimer || 0) - 1;
-        if (!targetFood && this._pauseTimer <= 0 && Math.random() < 0.0015) this._pauseTimer = 60 + Math.random()*120;
+        if (!targetFood && this._pauseTimer <= 0 && Math.random() < personality.pauseChance) this._pauseTimer = 60 + Math.random()*120;
         const isResting = !targetFood && this._pauseTimer > 0;
         const effMaxSpeed = this.maxSpeed * (isResting ? 0.12 : (this._burstMultiplier || 1));
 
@@ -955,12 +984,13 @@
       }
 
       startle(point) {
+        const mult = 3 * (PERSONALITY[this.personality].startleMult || 1);
         const away = new THREE.Vector3().subVectors(this.pos, point);
         if (away.lengthSq() < 0.0001) away.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5);
-        away.normalize().multiplyScalar(this.maxSpeed*3);
+        away.normalize().multiplyScalar(this.maxSpeed*mult);
         this.vel.add(away);
-        if (this.vel.length() > this.maxSpeed*3) this.vel.setLength(this.maxSpeed*3);
-        this._burstMultiplier = 3;
+        if (this.vel.length() > this.maxSpeed*mult) this.vel.setLength(this.maxSpeed*mult);
+        this._burstMultiplier = mult;
         this._burstTimer = 40;
         this._pauseTimer = 0;
       }
@@ -1112,7 +1142,11 @@
             const a = fishes[i], b = fishes[j];
             if (!a.isAdult || !b.isAdult) continue;
             if (a.pos.distanceTo(b.pos) > 1.2) continue;
-            const ta = SPECIES_TEMPERAMENT[a.speciesKey], tb = SPECIES_TEMPERAMENT[b.speciesKey];
+            // Base species temperament, nudged by each individual's own personality trait
+            const aAgg = SPECIES_TEMPERAMENT[a.speciesKey].aggression + PERSONALITY[a.personality].aggressionDelta;
+            const bAgg = SPECIES_TEMPERAMENT[b.speciesKey].aggression + PERSONALITY[b.personality].aggressionDelta;
+            const ta = { aggression: aAgg, size: SPECIES_TEMPERAMENT[a.speciesKey].size };
+            const tb = { aggression: bAgg, size: SPECIES_TEMPERAMENT[b.speciesKey].size };
             let predator = null, prey = null;
             if (ta.size - tb.size >= 2 && ta.aggression >= 4) { predator = a; prey = b; }
             else if (tb.size - ta.size >= 2 && tb.aggression >= 4) { predator = b; prey = a; }
@@ -1430,6 +1464,7 @@
         const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
         document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
         document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} · 지느러미 ${(f.genotype.fin||['F','F']).join('')} (${f.traitLabel})`;
+        document.getElementById('fish-info-personality').innerText = PERSONALITY[f.personality] ? PERSONALITY[f.personality].label : f.personality;
         const elapsed = Date.now() - f.birthTime;
         const stage = f.isAdult ? '성체' : '치어';
         const remain = Math.max(0, MATURITY_MS - elapsed);
@@ -1571,7 +1606,7 @@
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
-          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName },
+          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName, colorVariantIndex: f.colorVariantIndex, personality: f.personality },
           currentBid: f.value, bidder: null,
           history: [], endsAt: Date.now() + 60000
         };
@@ -1628,7 +1663,7 @@
           Sound.coin();
           alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
         } else {
-          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype }));
+          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype, colorVariantIndex: a.fishSnapshot.colorVariantIndex, personality: a.fishSnapshot.personality }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
         }
         State.auction = null;
@@ -1853,7 +1888,7 @@
         const data = {
           version: 6,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer })),
+          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorVariantIndex: f.colorVariantIndex, personality: f.personality })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
