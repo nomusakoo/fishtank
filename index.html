@@ -609,16 +609,16 @@
     };
 
     // --- Real 3D model support (for production use) ---
-    // No model files ship with this project (sourcing properly-licensed fish models is up to
-    // whoever deploys this). Drop a .glb per species here (e.g. url: 'models/guppy.glb') and it
-    // will load automatically in place of the procedural placeholder body, with graceful fallback
-    // to the procedural shape if the url is empty or the file fails to load.
+    // Each model's mesh is pre-split at export time into a 'body' node and a 'tail' node (pivoted
+    // at the peduncle), so Fish._tryLoadModel can drive the tail node with the same sine-wave swim
+    // animation the procedural body uses instead of rendering a rigid static mesh. No models ship
+    // for ANGEL/DISCUS; those keep the procedural fallback (empty url = procedural body).
     const MODEL_CONFIG = {
-      GUPPY:  { url: '', scale: 1, rotationY: 0 },
-      MOLLY:  { url: '', scale: 1, rotationY: 0 },
-      NEON:   { url: '', scale: 1, rotationY: 0 },
-      CORY:   { url: '', scale: 1, rotationY: 0 },
-      BETTA:  { url: '', scale: 1, rotationY: 0 },
+      GUPPY:  { url: 'models/guppy.glb', scale: 0.62, rotationY: 0 },
+      MOLLY:  { url: 'models/molly.glb', scale: 0.51, rotationY: 0 },
+      NEON:   { url: 'models/neon.glb',  scale: 0.72, rotationY: 0 },
+      CORY:   { url: 'models/cory.glb',  scale: 0.30, rotationY: 0 },
+      BETTA:  { url: 'models/betta.glb', scale: 0.71, rotationY: 0 },
       ANGEL:  { url: '', scale: 1, rotationY: 0 },
       DISCUS: { url: '', scale: 1, rotationY: 0 }
     };
@@ -850,14 +850,27 @@
           const model = gltf.scene.clone(true);
           model.scale.setScalar(cfg.scale || 1);
           model.rotation.y = cfg.rotationY || 0;
-          model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+
+          // Reuse this fish's existing genotype/color-variant-derived material so a model-based
+          // fish still looks distinct per trait, the same way the procedural body does.
+          let tailNode = null;
+          model.traverse(o => {
+            if (o.isMesh) {
+              o.castShadow = false; o.receiveShadow = false;
+              o.material = o.name === 'tail' ? this.bodyMat.clone() : this.bodyMat;
+            }
+            if (o.name === 'tail') tailNode = o;
+          });
 
           // Remove the procedural placeholder parts (body/fins/tail), keep the group itself so
           // position/velocity/quaternion logic and the hunger/sick sprites are unaffected.
           [this._proceduralBody, this._dorsal, this.tailGroup, this.finL, this.finR].forEach(o => {
             if (o) { this.group.remove(o); disposeObject3D(o); }
           });
-          this.tailGroup = null; this.finL = null; this.finR = null;
+          this.finL = null; this.finR = null;
+          // A tail node exported as its own pivoted sub-mesh (see models/README) lets us drive the
+          // exact same sine-wave swim animation the procedural body uses, instead of a static mesh.
+          this.tailGroup = tailNode || null;
 
           this.group.add(model);
           this.modelRoot = model;
@@ -995,9 +1008,11 @@
         } else if (this.tailGroup) {
           const swishSpeed = 6 + speed*40;
           this.tailGroup.rotation.y = Math.sin(this._animT*swishSpeed + this.phase) * 0.35;
-          const finAmp = speed < 0.008 ? 0.32 : 0.12;
-          this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
-          this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+          if (this.finL) {
+            const finAmp = speed < 0.008 ? 0.32 : 0.12;
+            this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
+            this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+          }
         }
       }
 
