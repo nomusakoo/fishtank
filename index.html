@@ -619,16 +619,15 @@
     // --- Real 3D model support (for production use) ---
     // Each model's mesh is pre-split at export time into a 'body' node and a 'tail' node (pivoted
     // at the peduncle), so Fish._tryLoadModel can drive the tail node with the same sine-wave swim
-    // animation the procedural body uses instead of rendering a rigid static mesh. No models ship
-    // for ANGEL/DISCUS; those keep the procedural fallback (empty url = procedural body).
+    // animation the procedural body uses instead of rendering a rigid static mesh.
     const MODEL_CONFIG = {
-      GUPPY:  { url: 'models/guppy.glb', scale: 0.62, rotationY: 0 },
-      MOLLY:  { url: 'models/molly.glb', scale: 0.51, rotationY: 0 },
-      NEON:   { url: 'models/neon.glb',  scale: 0.72, rotationY: 0 },
-      CORY:   { url: 'models/cory.glb',  scale: 0.30, rotationY: 0 },
-      BETTA:  { url: 'models/betta.glb', scale: 0.71, rotationY: 0 },
-      ANGEL:  { url: '', scale: 1, rotationY: 0 },
-      DISCUS: { url: '', scale: 1, rotationY: 0 }
+      GUPPY:  { url: 'models/guppy.glb',  scale: 0.62, rotationY: 0 },
+      MOLLY:  { url: 'models/molly.glb',  scale: 0.51, rotationY: 0 },
+      NEON:   { url: 'models/neon.glb',   scale: 0.72, rotationY: 0 },
+      CORY:   { url: 'models/cory.glb',   scale: 0.30, rotationY: 0 },
+      BETTA:  { url: 'models/betta.glb',  scale: 0.71, rotationY: 0 },
+      ANGEL:  { url: 'models/angel.glb',  scale: 0.78, rotationY: 0 },
+      DISCUS: { url: 'models/discus.glb', scale: 0.53, rotationY: 0 }
     };
     const _modelCache = new Map(); // url -> Promise<THREE.Object3D> (the loaded template, cloned per fish)
     function loadFishModel(url) {
