@@ -103,6 +103,7 @@
       </div>
       <div class="header-actions">
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
+        <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
       </div>
     </header>
@@ -172,6 +173,42 @@
         <button class="btn-glass btn-purple" onclick="DecoEditor.toggle()">🛠 배치 편집 모드 (이동/제거)</button>
         <div id="shop-list"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- FISH INFO MODAL -->
+  <div class="modal-overlay interactive" id="fish-info-modal" onclick="AquaApp.closeOutside(event, 'fish-info-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🐟 물고기 정보</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('fish-info-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <label style="font-size:12px; color:var(--text-muted);">이름</label>
+          <div style="display:flex; gap:6px; margin-top:4px;">
+            <input type="text" id="fish-info-name" class="num-input" style="flex:1; width:auto;">
+            <button class="btn-glass btn-primary" onclick="FishInfoUI.saveName()">저장</button>
+          </div>
+        </div>
+        <div class="prediction-box">
+          종류: <span id="fish-info-species"></span><br>
+          나이: <span id="fish-info-age"></span><br>
+          상태(컨디션): <span id="fish-info-condition"></span><br>
+          출품 시 예상 가격: <span id="fish-info-price"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FISH LIST MODAL -->
+  <div class="modal-overlay interactive" id="fish-list-modal" onclick="AquaApp.closeOutside(event, 'fish-list-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📋 물고기 도감</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('fish-list-modal')">✕</button>
+      </div>
+      <div class="modal-body" id="fish-list-content"></div>
     </div>
   </div>
 
@@ -250,6 +287,16 @@
       let found = null;
       scene.traverse(o => { if (o.userData && o.userData.decoId === id) found = o; });
       return found;
+    }
+
+    const MATURITY_MS = 10 * 60 * 1000; // 10 minutes real-time to reach adulthood
+
+    function formatDuration(ms) {
+      if (ms <= 0) return '0초';
+      const totalSec = Math.floor(ms / 1000);
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return m > 0 ? `${m}분 ${s}초` : `${s}초`;
     }
 
     const FLOOR_PALETTES = {
@@ -406,6 +453,10 @@
         this.tier = g.tier; this.value = g.val;
         this.hunger = typeof restore.hunger === 'number' ? restore.hunger : 100;
         this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : g.val;
+        // Fish restored without a recorded birth time (older saves) are treated as already grown,
+        // rather than surprising the player by making all their existing fish babies again.
+        this.birthTime = typeof restore.birthTime === 'number' ? restore.birthTime : (Date.now() - MATURITY_MS);
+        this.customName = restore.customName || null;
         this._lastHungerBucket = -1;
         this._animT = Math.random()*10;
         this.phase = Math.random()*Math.PI*2;
@@ -460,8 +511,12 @@
         this.wanderTarget = randomTankPoint();
         this.wanderTimer = 240 + Math.random()*240;
 
+        this.group.userData.fishId = this.id;
         scene.add(this.group);
       }
+
+      get displayName() { return this.customName || this.name; }
+      get isAdult() { return (Date.now() - this.birthTime) >= MATURITY_MS; }
 
       _updateHungerSprite() {
         const bucket = Math.max(0, Math.min(9, Math.floor(this.hunger/10)));
@@ -573,14 +628,14 @@
         list.style.display = 'block';
         list.innerHTML = State.fishes.filter(f => f !== this.p1 && f !== this.p2).map(f =>
           `<div class="list-item" style="padding:6px; margin-bottom:4px; cursor:pointer;" onclick="BreedingUI.confirmFish('${f.id}')">
-            <span class="tier-${f.tier}">${f.name}</span>
+            <span class="tier-${f.tier}">${f.displayName}</span>
           </div>`
         ).join('') || `<div style="text-align:center; color:#94a3b8;">가능한 개체가 없습니다.</div>`;
       },
       confirmFish(id) {
         const fish = State.fishes.find(f => f.id === id);
-        if(this.active === 1) { this.p1 = fish; document.getElementById('slot-1').innerHTML = `<b class="tier-${fish.tier}">${fish.name}</b>`; }
-        else { this.p2 = fish; document.getElementById('slot-2').innerHTML = `<b class="tier-${fish.tier}">${fish.name}</b>`; }
+        if(this.active === 1) { this.p1 = fish; document.getElementById('slot-1').innerHTML = `<b class="tier-${fish.tier}">${fish.displayName}</b>`; }
+        else { this.p2 = fish; document.getElementById('slot-2').innerHTML = `<b class="tier-${fish.tier}">${fish.displayName}</b>`; }
         document.getElementById('breed-select-list').style.display = 'none';
 
         if(this.p1 && this.p2) {
@@ -607,7 +662,7 @@
           childGene = Math.random()>0.5 ? this.p1.geneKey : this.p2.geneKey;
         }
 
-        const baby = new Fish(childGene, { purchaseCost: 3000 });
+        const baby = new Fish(childGene, { purchaseCost: 3000, birthTime: Date.now() });
         baby.pos.copy(this.p1.pos);
         State.fishes.push(baby);
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -818,7 +873,92 @@
     };
 
     /* ==========================================================
-       6. AUCTION SYSTEM
+       6. FISH INFO / LIST UI
+       ========================================================== */
+    const FishInfoUI = {
+      currentId: null, _interval: null,
+      open(id) {
+        const f = State.fishes.find(x => x.id === id);
+        if (!f) return;
+        this.currentId = id;
+        this.render(f);
+        AquaApp.openModal('fish-info-modal');
+        this._ensureTimer();
+      },
+      render(f) {
+        document.getElementById('fish-info-name').value = f.displayName;
+        const spLabel = SPECIES[f.species] ? SPECIES[f.species].label : f.species;
+        document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${spLabel}`;
+        const elapsed = Date.now() - f.birthTime;
+        const stage = f.isAdult ? '성체' : '치어';
+        const remain = Math.max(0, MATURITY_MS - elapsed);
+        document.getElementById('fish-info-age').innerHTML = `${stage} (경과 ${formatDuration(elapsed)})` + (f.isAdult ? '' : ` · 성체까지 ${formatDuration(remain)}`);
+        document.getElementById('fish-info-condition').innerText = `${Math.round(f.hunger)}%`;
+        document.getElementById('fish-info-price').innerText = `₩${f.value.toLocaleString()}`;
+      },
+      saveName() {
+        const f = State.fishes.find(x => x.id === this.currentId);
+        if (!f) return;
+        const val = document.getElementById('fish-info-name').value.trim();
+        f.customName = (val && val !== f.name) ? val : null;
+        AquaApp.saveLocal();
+        FishListUI.renderIfOpen();
+      },
+      _ensureTimer() {
+        if (this._interval) return;
+        this._interval = setInterval(() => {
+          const modal = document.getElementById('fish-info-modal');
+          const f = State.fishes.find(x => x.id === this.currentId);
+          if (!modal.classList.contains('active') || !f) { clearInterval(this._interval); this._interval = null; return; }
+          this.render(f);
+        }, 1000);
+      }
+    };
+
+    const FishListUI = {
+      render() {
+        const c = document.getElementById('fish-list-content');
+        if (State.fishes.length === 0) { c.innerHTML = '<div style="text-align:center; color:#94a3b8;">어항에 물고기가 없습니다.</div>'; return; }
+        c.innerHTML = State.fishes.map(f => {
+          const stage = f.isAdult ? '성체' : '치어';
+          return `<div class="list-item" style="cursor:pointer;" onclick="FishListUI.openDetail('${f.id}')">
+            <div>
+              <span class="tier-${f.tier}">${f.displayName}</span>
+              <div class="cond-text">${stage} · 컨디션 ${Math.round(f.hunger)}%</div>
+            </div>
+            <span style="color:var(--text-muted); font-size:12px;">₩${f.value.toLocaleString()}</span>
+          </div>`;
+        }).join('');
+      },
+      open() {
+        this.render();
+        AquaApp.openModal('fish-list-modal');
+      },
+      openDetail(id) {
+        AquaApp.closeModal('fish-list-modal');
+        FishInfoUI.open(id);
+      },
+      renderIfOpen() {
+        if (document.getElementById('fish-list-modal').classList.contains('active')) this.render();
+      }
+    };
+
+    // Click a fish in the tank to open its info popup (ignored while placing/editing decorations)
+    window.addEventListener('click', e => {
+      if (Builder.active || DecoEditor.active) return;
+      if (e.target.id !== 'webgl-canvas') return;
+      const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(mouse, camera);
+      const hits = ray.intersectObjects(State.fishes.map(f => f.group), true);
+      if (hits.length === 0) return;
+      let obj = hits[0].object;
+      while (obj && !obj.userData.fishId) obj = obj.parent;
+      if (obj) FishInfoUI.open(obj.userData.fishId);
+    });
+
+    /* ==========================================================
+       7. AUCTION SYSTEM
        ========================================================== */
     const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Legendary'];
     const AuctionUI = {
@@ -833,7 +973,7 @@
             ? `<div style="text-align:center; padding:20px; color:var(--text-muted);">희귀(Rare) 등급 이상 물고기만 출품할 수 있습니다.</div>`
             : eligible.map(f => `
               <div class="list-item">
-                <span class="tier-${f.tier}">${f.name}</span>
+                <span class="tier-${f.tier}">${f.displayName}</span>
                 <button class="btn-glass btn-purple" onclick="AuctionUI.list('${f.id}')">출품 (시작가 ₩${f.value.toLocaleString()})</button>
               </div>`).join('');
           return;
@@ -864,7 +1004,7 @@
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
-          fishSnapshot: { geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.name, tier: f.tier },
+          fishSnapshot: { geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName },
           currentBid: f.value, bidder: null,
           history: [], endsAt: Date.now() + 60000
         };
@@ -921,7 +1061,7 @@
           Sound.coin();
           alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
         } else {
-          State.fishes.push(new Fish(a.fishSnapshot.geneKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost }));
+          State.fishes.push(new Fish(a.fishSnapshot.geneKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
         }
         State.auction = null;
@@ -941,12 +1081,12 @@
     };
 
     /* ==========================================================
-       7. MAIN APP CONTROLLER (Save/Load/UI)
+       8. MAIN APP CONTROLLER (Save/Load/UI)
        ========================================================== */
     const AquaApp = {
       init() {
         initThree(); this.loadLocal();
-        if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('BLUE'), new Fish('RED')); }
+        if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('BLUE', { birthTime: Date.now() }), new Fish('RED', { birthTime: Date.now() })); }
         State.decorations.forEach(d => Builder.spawn(d));
         this.updateUI();
         AuctionUI.resume();
@@ -1023,7 +1163,7 @@
         Sound.init(); Sound.coin();
         for (let i=0; i<actual; i++) {
           State.money -= 5000;
-          State.fishes.push(new Fish(Math.random()>0.5 ? 'BLUE':'RED', { purchaseCost: 5000 }));
+          State.fishes.push(new Fish(Math.random()>0.5 ? 'BLUE':'RED', { purchaseCost: 5000, birthTime: Date.now() }));
         }
         this.updateUI(); this.saveLocal(); this.closeModal('buy-modal');
       },
@@ -1082,7 +1222,7 @@
           return `
           <div class="list-item">
             <div>
-              <span class="tier-${f.tier}">${f.name}</span>
+              <span class="tier-${f.tier}">${f.displayName}</span>
               <div class="cond-text">컨디션: ${Math.round(f.hunger)}%</div>
             </div>
             <button class="btn-glass btn-gold" onclick="AquaApp.sellFish('${f.id}')">₩${price.toLocaleString()} 판매</button>
@@ -1112,7 +1252,7 @@
         const data = {
           version: 5,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id })),
+          fishes: State.fishes.map(f => ({ geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
@@ -1178,7 +1318,7 @@
         localStorage.removeItem(SAVE_KEY);
         localStorage.removeItem(LEGACY_SAVE_KEY);
 
-        State.fishes.push(new Fish('BLUE'), new Fish('RED'));
+        State.fishes.push(new Fish('BLUE', { birthTime: Date.now() }), new Fish('RED', { birthTime: Date.now() }));
         this.updateUI();
         this.saveLocal();
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
