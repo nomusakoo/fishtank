@@ -104,6 +104,7 @@
       <div class="header-actions">
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
         <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
+        <button class="btn-glass" onclick="WaterUI.open()">💧 수질</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
       </div>
     </header>
@@ -213,6 +214,25 @@
     </div>
   </div>
 
+  <!-- WATER QUALITY MODAL -->
+  <div class="modal-overlay interactive" id="water-modal" onclick="AquaApp.closeOutside(event, 'water-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>💧 수질 관리</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('water-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="prediction-box">
+          수질: <span id="water-quality-text"></span><br>
+          pH: <span id="water-ph-text"></span><br>
+          부유 찌꺼기: <span id="water-waste-text"></span>
+        </div>
+        <div class="cond-text">먹이 찌꺼기와 물고기 배설물이 쌓이면 수질이 나빠지고, 물고기가 병에 걸리기 쉬워집니다.</div>
+        <button class="btn-glass btn-primary" style="padding:12px; justify-content:center;" onclick="WaterUI.doWaterChange()">🚿 부분 환수 (₩1,000)</button>
+      </div>
+    </div>
+  </div>
+
   <!-- BUY MODAL -->
   <div class="modal-overlay interactive" id="buy-modal" onclick="AquaApp.closeOutside(event, 'buy-modal')">
     <div class="modal-card">
@@ -254,9 +274,25 @@
     };
 
     const State = {
-      money: 35000, tankCapacity: 8, fishes: [], foods: [], decorations: [],
-      floorStyle: 'default', bgStyle: 'default', auction: null
+      money: 35000, tankCapacity: 8, fishes: [], foods: [], decorations: [], waste: [],
+      floorStyle: 'default', bgStyle: 'default', auction: null,
+      water: { quality: 100, ph: 7.0 }
     };
+
+    function showToast(msg, ms) {
+      let el = document.getElementById('toast-container');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'toast-container';
+        el.style.cssText = 'position:absolute; top:70px; left:50%; transform:translateX(-50%); z-index:200; display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; max-width:90vw;';
+        document.body.appendChild(el);
+      }
+      const toast = document.createElement('div');
+      toast.textContent = msg;
+      toast.style.cssText = 'background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.15); padding:10px 16px; border-radius:10px; color:#fff; font-size:13px; text-align:center; box-shadow:0 8px 20px rgba(0,0,0,0.5);';
+      el.appendChild(toast);
+      setTimeout(() => toast.remove(), ms || 3500);
+    }
 
     const Sound = {
       ctx: null,
@@ -296,6 +332,20 @@
       const mat = new THREE.SpriteMaterial({ transparent: true, depthWrite: false });
       const spr = new THREE.Sprite(mat);
       spr.scale.set(0.32, 0.32, 0.32);
+      return spr;
+    }
+
+    function makeSickSprite() {
+      const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'rgba(74,222,128,0.9)';
+      ctx.beginPath(); ctx.arc(16, 16, 10, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#052e16'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('+', 16, 17);
+      const tex = new THREE.CanvasTexture(canvas);
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+      const spr = new THREE.Sprite(mat);
+      spr.scale.set(0.26, 0.26, 0.26);
       return spr;
     }
 
@@ -461,6 +511,18 @@
       DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'ANGEL' }
     };
 
+    // Real-ish temperament: aggression (0-10) and relative size, used for fights/predation.
+    // e.g. Betta are notoriously territorial; larger cichlids like Angelfish/Discus will eat small tetras.
+    const SPECIES_TEMPERAMENT = {
+      GUPPY:  { aggression: 1, size: 1 },
+      MOLLY:  { aggression: 2, size: 1 },
+      NEON:   { aggression: 1, size: 1 },
+      CORY:   { aggression: 1, size: 1 },
+      BETTA:  { aggression: 8, size: 2 },
+      ANGEL:  { aggression: 5, size: 3 },
+      DISCUS: { aggression: 3, size: 3 }
+    };
+
     // --- Mendelian genetics: two independent loci (색상 C/c, 무늬 M/m), dominant/recessive ---
     function randomAllele(dominant, recessive, recessiveChance) {
       return Math.random() < recessiveChance ? recessive : dominant;
@@ -532,6 +594,9 @@
         // rather than surprising the player by making all their existing fish babies again.
         this.birthTime = typeof restore.birthTime === 'number' ? restore.birthTime : (Date.now() - MATURITY_MS);
         this.customName = restore.customName || null;
+        this.sick = restore.sick || false;
+        this.sickTimer = restore.sickTimer || 0;
+        this._starveTimer = 0;
         this._lastHungerBucket = -1;
         this._animT = Math.random()*10;
         this.phase = Math.random()*Math.PI*2;
@@ -543,6 +608,7 @@
           color: hex, metalness: patternRecessive ? 0.9 : 0.2,
           emissive: patternRecessive ? hex : 0x000000, emissiveIntensity: patternRecessive ? 0.4 : 0.3
         });
+        this.bodyMat = bodyMat;
         const finMat = new THREE.MeshStandardMaterial({ color: hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.6 });
 
         const [bx, by, bz] = sp.bodyScale;
@@ -581,6 +647,11 @@
         this.group.add(this.hungerSprite);
         this._updateHungerSprite();
 
+        this.sickSprite = makeSickSprite();
+        this.sickSprite.position.set(0.22, 0.3*by*1.6 + 0.15, 0);
+        this.sickSprite.visible = this.sick;
+        this.group.add(this.sickSprite);
+
         this.pos = new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*4, (Math.random()-0.5)*5);
         this.vel = new THREE.Vector3((Math.random()-0.5)*0.02, (Math.random()-0.5)*0.01, (Math.random()-0.5)*0.02);
         this.maxSpeed = 0.025 + Math.random()*0.02;
@@ -614,8 +685,25 @@
       }
 
       update(foods) {
-        this.hunger = Math.max(0, this.hunger - 0.0015);
+        const qualityPenalty = Math.max(0, (60 - State.water.quality)) / 100; // up to +100% decay when water is very poor
+        this.hunger = Math.max(0, this.hunger - 0.0015 * (1 + qualityPenalty));
         this._updateHungerSprite();
+        this.sickSprite.visible = this.sick;
+
+        if (this.hunger <= 0) {
+          this._starveTimer++;
+          if (this._starveTimer > 3600) this._pendingDeath = 'starvation'; // ~60s at 60fps
+        } else {
+          this._starveTimer = 0;
+        }
+
+        // Occasionally leave waste behind, which builds up and pollutes the water over time
+        if (State.waste.length < 40 && Math.random() < 0.0004) {
+          const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), new THREE.MeshStandardMaterial({ color: 0x3f2e1e, roughness: 1 }));
+          mesh.position.copy(this.pos);
+          scene.add(mesh);
+          State.waste.push({ mesh, vy: 0 });
+        }
 
         let targetFood = null;
         if (this.hunger < 95 && foods && foods.length > 0) {
@@ -774,7 +862,104 @@
         const baby = new Fish(p1.speciesKey, { birthTime: Date.now(), genotype: childGenotype });
         baby.pos.copy(p1.pos);
         State.fishes.push(baby);
+        showToast(`🐣 자연 번식으로 [${baby.name}] 탄생!`);
         AquaApp.updateUI(); AquaApp.saveLocal();
+      }
+    };
+
+    /* ==========================================================
+       4c. WATER QUALITY & FISH HEALTH
+       ========================================================== */
+    const WaterSystem = {
+      qualityTimer: null, interactionTimer: null,
+      start() {
+        if (!this.qualityTimer) this.qualityTimer = setInterval(() => this.qualityTick(), 10000);
+        if (!this.interactionTimer) this.interactionTimer = setInterval(() => this.interactionTick(), 4000);
+      },
+      stop() {
+        clearInterval(this.qualityTimer); this.qualityTimer = null;
+        clearInterval(this.interactionTimer); this.interactionTimer = null;
+      },
+      qualityTick() {
+        const wasteLoad = State.waste.length;
+        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.8 - 0.3));
+        State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
+
+        State.fishes.forEach(f => {
+          if (!f.sick) {
+            const sickChance = Math.max(0, 60 - State.water.quality) / 100 * 0.15;
+            if (Math.random() < sickChance) {
+              f.sick = true; f.sickTimer = 0;
+              showToast(`🤒 ${f.displayName}이(가) 수질 악화로 병에 걸렸어요!`);
+            }
+          } else {
+            f.sickTimer += 10;
+            if (State.water.quality > 70 && Math.random() < 0.3) {
+              f.sick = false; f.sickTimer = 0;
+              showToast(`💊 ${f.displayName}이(가) 회복했습니다.`);
+            } else if (f.sickTimer > 90) {
+              f._pendingDeath = 'disease';
+            }
+          }
+        });
+
+        AquaApp.saveLocal();
+        WaterUI.renderIfOpen();
+      },
+      interactionTick() {
+        const fishes = State.fishes;
+        for (let i = 0; i < fishes.length; i++) {
+          for (let j = i+1; j < fishes.length; j++) {
+            const a = fishes[i], b = fishes[j];
+            if (!a.isAdult || !b.isAdult) continue;
+            if (a.pos.distanceTo(b.pos) > 1.2) continue;
+            const ta = SPECIES_TEMPERAMENT[a.speciesKey], tb = SPECIES_TEMPERAMENT[b.speciesKey];
+            let predator = null, prey = null;
+            if (ta.size - tb.size >= 2 && ta.aggression >= 4) { predator = a; prey = b; }
+            else if (tb.size - ta.size >= 2 && tb.aggression >= 4) { predator = b; prey = a; }
+            if (predator && prey && Math.random() < 0.15) {
+              showToast(`🐟 ${predator.displayName}이(가) ${prey.displayName}을(를) 잡아먹었습니다!`);
+              prey.destroy();
+              fishes.splice(fishes.indexOf(prey), 1);
+              predator.hunger = Math.min(100, predator.hunger + 50);
+              AquaApp.updateUI(); AquaApp.saveLocal();
+              return; // array mutated; resume next tick
+            }
+            if (ta.aggression >= 5 && tb.aggression >= 5 && Math.abs(ta.size - tb.size) < 2 && Math.random() < 0.1) {
+              showToast(`⚔️ ${a.displayName}와(과) ${b.displayName}이(가) 다퉜습니다!`);
+              a.hunger = Math.max(0, a.hunger - 15);
+              b.hunger = Math.max(0, b.hunger - 15);
+              if (Math.random() < 0.3) { a.sick = true; a.sickTimer = 0; }
+              if (Math.random() < 0.3) { b.sick = true; b.sickTimer = 0; }
+              AquaApp.saveLocal();
+            }
+          }
+        }
+      }
+    };
+
+    const WaterUI = {
+      render() {
+        document.getElementById('water-quality-text').innerText = `${Math.round(State.water.quality)}%`;
+        document.getElementById('water-ph-text').innerText = State.water.ph.toFixed(2);
+        document.getElementById('water-waste-text').innerText = `${State.waste.length}개`;
+      },
+      open() { this.render(); AquaApp.openModal('water-modal'); },
+      renderIfOpen() {
+        const m = document.getElementById('water-modal');
+        if (m && m.classList.contains('active')) this.render();
+      },
+      doWaterChange() {
+        if (State.money < 1000) return alert('환수 비용(₩1,000)이 부족합니다.');
+        State.money -= 1000;
+        State.water.quality = Math.min(100, State.water.quality + 45);
+        State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
+        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste = [];
+        Sound.init(); Sound.bubble();
+        AquaApp.updateUI(); AquaApp.saveLocal();
+        this.render();
+        showToast('💧 환수 완료! 수질이 개선되었습니다.');
       }
     };
 
@@ -1001,7 +1186,7 @@
         const stage = f.isAdult ? '성체' : '치어';
         const remain = Math.max(0, MATURITY_MS - elapsed);
         document.getElementById('fish-info-age').innerHTML = `${stage} (경과 ${formatDuration(elapsed)})` + (f.isAdult ? '' : ` · 성체까지 ${formatDuration(remain)}`);
-        document.getElementById('fish-info-condition').innerText = `${Math.round(f.hunger)}%`;
+        document.getElementById('fish-info-condition').innerText = `${Math.round(f.hunger)}%` + (f.sick ? ' · 🤒 병에 걸림' : '');
         document.getElementById('fish-info-price').innerText = `₩${f.value.toLocaleString()}`;
       },
       saveName() {
@@ -1032,7 +1217,7 @@
           return `<div class="list-item" style="cursor:pointer;" onclick="FishListUI.openDetail('${f.id}')">
             <div>
               <span class="tier-${f.tier}">${f.displayName}</span>
-              <div class="cond-text">${stage} · 컨디션 ${Math.round(f.hunger)}%</div>
+              <div class="cond-text">${stage} · 컨디션 ${Math.round(f.hunger)}%${f.sick ? ' · 🤒' : ''}</div>
             </div>
             <span style="color:var(--text-muted); font-size:12px;">₩${f.value.toLocaleString()}</span>
           </div>`;
@@ -1199,6 +1384,7 @@
         this.updateUI();
         AuctionUI.resume();
         NaturalBreeding.start();
+        WaterSystem.start();
 
         const animate = () => {
           requestAnimationFrame(animate);
@@ -1210,10 +1396,34 @@
              food.mesh.position.y += food.vy;
              food.mesh.position.x += Math.sin(Date.now()*0.002 + food.driftPhase)*0.004;
              food.mesh.position.z += Math.cos(Date.now()*0.0017 + food.driftPhase)*0.004;
-             if(food.mesh.position.y < -tankY) {
-               scene.remove(food.mesh);
+             if(food.mesh.position.y < -tankY+0.05) {
+               // Uneaten food settles as waste instead of vanishing, and pollutes the water over time
+               food.mesh.position.y = -tankY+0.05;
+               if (State.waste.length < 40) {
+                 food.mesh.material.color.set(0x3f2e1e);
+                 State.waste.push({ mesh: food.mesh, vy: 0 });
+               } else {
+                 scene.remove(food.mesh);
+               }
                State.foods.splice(i,1);
              }
+          }
+
+          // Waste particles sink and settle on the floor until a water change clears them
+          State.waste.forEach(w => {
+            w.vy = Math.max((w.vy||0) - 0.001, -0.01);
+            w.mesh.position.y = Math.max(w.mesh.position.y + w.vy, -tankY+0.05);
+          });
+
+          // Fish that starved or succumbed to disease are removed here (outside the per-fish update loop)
+          for (let i = State.fishes.length-1; i>=0; i--) {
+            const f = State.fishes[i];
+            if (f._pendingDeath) {
+              showToast(`🪦 ${f.displayName}이(가) ${f._pendingDeath === 'starvation' ? '굶주림' : '질병'}으로 세상을 떠났습니다.`);
+              f.destroy();
+              State.fishes.splice(i, 1);
+              AquaApp.updateUI(); AquaApp.saveLocal();
+            }
           }
 
           updateDecorations();
@@ -1369,11 +1579,12 @@
         const data = {
           version: 6,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName })),
+          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
-          auction: State.auction
+          auction: State.auction,
+          water: State.water
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(data));
       },
@@ -1423,6 +1634,7 @@
         State.floorStyle = data.floorStyle || 'default';
         State.bgStyle = data.bgStyle || 'default';
         State.auction = data.auction || null;
+        State.water = data.water || { quality: 100, ph: 7.0 };
         if (data.fishes && data.fishes.length>0) {
           data.fishes.forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
         }
@@ -1437,11 +1649,14 @@
         clearTimeout(AuctionUI.bidTimeout); AuctionUI.bidTimeout = null;
         if (AuctionUI.tickInterval) { clearInterval(AuctionUI.tickInterval); AuctionUI.tickInterval = null; }
         NaturalBreeding.stop();
+        WaterSystem.stop();
 
         State.fishes.forEach(f => f.destroy());
         State.fishes = [];
         State.foods.forEach(f => scene.remove(f.mesh));
         State.foods = [];
+        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste = [];
         State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) scene.remove(m); });
         State.decorations = [];
         State.money = 35000;
@@ -1449,6 +1664,7 @@
         State.floorStyle = 'default';
         State.bgStyle = 'default';
         State.auction = null;
+        State.water = { quality: 100, ph: 7.0 };
 
         applyFloorStyle(State.floorStyle);
         applyBgStyle(State.bgStyle);
@@ -1461,6 +1677,7 @@
         this.updateUI();
         this.saveLocal();
         NaturalBreeding.start();
+        WaterSystem.start();
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
       }
     };
