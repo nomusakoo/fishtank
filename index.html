@@ -34,6 +34,10 @@
     .stat-badge { background: var(--bg-glass); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); border-radius: 999px; padding: 8px 18px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
     .stat-badge span.val { color: var(--accent-cyan); font-weight: 700; font-family: var(--font-display); font-size: 15px; }
     .badge-gold span.val { color: var(--accent-gold); }
+    .stat-badge.water-badge { flex-direction: column; align-items: stretch; gap: 5px; cursor: pointer; }
+    .stat-badge.water-badge:active { transform: scale(0.96); }
+    .water-bar { width: 100%; min-width: 64px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.15); overflow: hidden; }
+    .water-bar-fill { height: 100%; border-radius: 3px; background: var(--accent-green); transition: width 0.5s ease, background 0.5s ease; }
     .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
     /* Buttons */
@@ -133,17 +137,20 @@
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <div class="stat-badge badge-gold"><span>자산:</span><span class="val" id="stat-money">₩ 25,000</span></div>
         <div class="stat-badge"><span>어항:</span><span class="val" id="stat-fish-count">0 / 8</span></div>
+        <div class="stat-badge water-badge" id="water-badge" onclick="WaterUI.open()">
+          <div style="display:flex; align-items:center; gap:6px;"><span>💧</span><span class="val" id="water-badge-pct">100%</span></div>
+          <div class="water-bar"><div class="water-bar-fill" id="water-bar-fill" style="width:100%"></div></div>
+        </div>
       </div>
       <div class="header-actions">
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
         <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
-        <button class="btn-glass" onclick="WaterUI.open()">💧 수질</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
       </div>
     </header>
 
     <footer class="bottom-bar interactive" id="bottom-bar">
-      <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🍚 밥 주기</button>
+      <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🍚 밥 주기 (₩100)</button>
       <button class="btn-glass btn-cyan main-action-btn" onclick="WaterUI.doWaterChange()">🚿 환수 (₩1,000)</button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.openBuyModal()">➕ 치어 구매</button>
       <button class="btn-glass btn-purple main-action-btn" onclick="BreedingUI.open()">🧪 부화장 (교배)</button>
@@ -415,6 +422,7 @@
     }
 
     const MATURITY_MS = 10 * 60 * 1000; // 10 minutes real-time to reach adulthood
+    const FEED_COST = 100; // charged once per "밥 주기" press, regardless of tank size
 
     function formatDuration(ms) {
       if (ms <= 0) return '0초';
@@ -734,6 +742,44 @@
       return c.getHex();
     }
 
+    // --- Color genetics: each fish carries two "color alleles" (indices into its species'
+    // palette), one from each parent. A homozygous pair (e.g. blue x blue) shows that palette
+    // color as-is; a heterozygous pair (e.g. blue x yellow) shows an actual RGB blend of both,
+    // so bred offspring visibly mix their parents' colors instead of randomly picking one.
+    function randomColorGenes(paletteLength) {
+      const i = Math.floor(Math.random() * paletteLength);
+      return [i, i]; // freshly bought/base fish start "purebred" for a single named color
+    }
+    function inheritColorGenes(genes1, genes2, paletteLength) {
+      let a = meiosis(genes1), b = meiosis(genes2);
+      if (Math.random() < 0.03) a = Math.floor(Math.random() * paletteLength);
+      if (Math.random() < 0.03) b = Math.floor(Math.random() * paletteLength);
+      return [a, b];
+    }
+    function colorGenesToHex(palette, genes) {
+      const a = palette[genes[0]] || palette[0];
+      const b = palette[genes[1]] || palette[0];
+      if (genes[0] === genes[1]) return a.hex;
+      return new THREE.Color(a.hex).lerp(new THREE.Color(b.hex), 0.5).getHex();
+    }
+    function colorGenesToLabel(palette, genes) {
+      const a = palette[genes[0]] || palette[0];
+      const b = palette[genes[1]] || palette[0];
+      if (genes[0] === genes[1] || a.name === b.name) return a.name;
+      const [n1, n2] = [a.name, b.name].sort();
+      return `${n1}×${n2} 믹스`;
+    }
+    // Punnett-style preview of the possible color outcomes of crossing two parents, for the
+    // breeding modal's prediction panel.
+    function colorPunnettPreview(genes1, genes2, palette) {
+      const counts = {};
+      genes1.forEach(a => genes2.forEach(b => {
+        const label = colorGenesToLabel(palette, [a, b]);
+        counts[label] = (counts[label] || 0) + 1;
+      }));
+      return counts;
+    }
+
     class Fish {
       constructor(speciesKey, restore) {
         restore = restore || {};
@@ -748,10 +794,15 @@
         this.value = Math.round(species.basePrice * rarity.mult);
         this.traitLabel = traitLabel(this.genotype);
         const palette = species.palette || [{ hex: species.hex, name: '' }];
-        this.colorVariantIndex = typeof restore.colorVariantIndex === 'number' ? restore.colorVariantIndex : Math.floor(Math.random()*palette.length);
-        const colorVariant = palette[this.colorVariantIndex] || palette[0];
+        // colorGenes: two palette-index alleles, one per parent (see colorGenesToHex/Label above).
+        // Falls back to a same-index pair for fresh fish or v5-and-earlier saves that only ever
+        // recorded a single colorVariantIndex.
+        this.colorGenes = Array.isArray(restore.colorGenes) ? restore.colorGenes
+          : typeof restore.colorVariantIndex === 'number' ? [restore.colorVariantIndex, restore.colorVariantIndex]
+          : randomColorGenes(palette.length);
+        const colorLabel = colorGenesToLabel(palette, this.colorGenes);
         this.personality = restore.personality && PERSONALITY[restore.personality] ? restore.personality : randomPersonality();
-        this.name = (colorVariant.name ? colorVariant.name + ' ' : '') + species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
+        this.name = (colorLabel ? colorLabel + ' ' : '') + species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
         this.hunger = typeof restore.hunger === 'number' ? restore.hunger : 100;
         this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : this.value;
         // Fish restored without a recorded birth time (older saves) are treated as already grown,
@@ -769,7 +820,8 @@
         const colorScore = locusScore(this.genotype.color);
         const patternScore = locusScore(this.genotype.pattern);
         const finScore = locusScore(this.genotype.fin);
-        const hex = colorScore > 0 ? lightenColor(colorVariant.hex, colorScore * 0.3) : colorVariant.hex;
+        const baseHex = colorGenesToHex(palette, this.colorGenes);
+        const hex = colorScore > 0 ? lightenColor(baseHex, colorScore * 0.3) : baseHex;
         const metalness = [0.2, 0.55, 0.9][patternScore];
         const emissiveIntensity = [0, 0.2, 0.4][patternScore];
         const bodyMat = new THREE.MeshStandardMaterial({
@@ -1071,8 +1123,11 @@
             const label = locus.key === 'color' ? '색상' : locus.key === 'pattern' ? '무늬' : '지느러미';
             return `${label} 유전자(${locus.dominant}/${locus.recessive}): ${fmt(p)}`;
           }).join('<br>');
+          const palette = FISH_SPECIES[this.p1.speciesKey].palette || [{ hex: FISH_SPECIES[this.p1.speciesKey].hex, name: '' }];
+          const colorMix = colorPunnettPreview(this.p1.colorGenes, this.p2.colorGenes, palette);
           document.getElementById('breed-prediction').innerHTML = `
             <span style="color:var(--accent-cyan)">멘델 유전 리포트 (${FISH_SPECIES[this.p1.speciesKey].name})</span><br>
+            체색: ${fmt(colorMix)}<br>
             ${lines}<br>
             <span style="color:var(--accent-gold)">대립유전자당 돌연변이 확률: 3%</span>
           `;
@@ -1085,7 +1140,9 @@
 
         State.money -= 3000; Sound.init(); Sound.magic();
         const childGenotype = mendelCross(this.p1.genotype, this.p2.genotype);
-        const baby = new Fish(this.p1.speciesKey, { purchaseCost: 3000, birthTime: Date.now(), genotype: childGenotype });
+        const paletteLen = (FISH_SPECIES[this.p1.speciesKey].palette || [0]).length;
+        const childColorGenes = inheritColorGenes(this.p1.colorGenes, this.p2.colorGenes, paletteLen);
+        const baby = new Fish(this.p1.speciesKey, { purchaseCost: 3000, birthTime: Date.now(), genotype: childGenotype, colorGenes: childColorGenes });
         baby.pos.copy(this.p1.pos);
         State.fishes.push(baby);
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -1119,7 +1176,9 @@
         const shuffled = group.slice().sort(() => Math.random()-0.5);
         const [p1, p2] = shuffled;
         const childGenotype = mendelCross(p1.genotype, p2.genotype);
-        const baby = new Fish(p1.speciesKey, { birthTime: Date.now(), genotype: childGenotype });
+        const paletteLen = (FISH_SPECIES[p1.speciesKey].palette || [0]).length;
+        const childColorGenes = inheritColorGenes(p1.colorGenes, p2.colorGenes, paletteLen);
+        const baby = new Fish(p1.speciesKey, { birthTime: Date.now(), genotype: childGenotype, colorGenes: childColorGenes });
         baby.pos.copy(p1.pos);
         State.fishes.push(baby);
         showToast(`🐣 자연 번식으로 [${baby.name}] 탄생!`);
@@ -1171,6 +1230,7 @@
 
         AquaApp.saveLocal();
         WaterUI.renderIfOpen();
+        WaterUI.updateBadge();
       },
       interactionTick() {
         const fishes = State.fishes;
@@ -1226,6 +1286,18 @@
         const m = document.getElementById('water-modal');
         if (m && m.classList.contains('active')) this.render();
       },
+      // Always-visible header gauge (outside the tank view) so water quality is legible at a
+      // glance instead of only inside the water modal.
+      updateBadge() {
+        const pctEl = document.getElementById('water-badge-pct');
+        const fillEl = document.getElementById('water-bar-fill');
+        if (!pctEl || !fillEl) return;
+        const q = Math.round(State.water.quality);
+        pctEl.innerText = `${q}%`;
+        fillEl.style.width = `${q}%`;
+        const color = q >= 70 ? 'var(--accent-green)' : q >= 40 ? 'var(--accent-gold)' : 'var(--accent-red)';
+        fillEl.style.background = color;
+      },
       doWaterChange() {
         if (State.money < 1000) return alert('환수 비용(₩1,000)이 부족합니다.');
         State.money -= 1000;
@@ -1235,7 +1307,7 @@
         State.waste = [];
         Sound.init(); Sound.bubble();
         AquaApp.updateUI(); AquaApp.saveLocal();
-        this.render();
+        this.render(); this.updateBadge();
         showToast('💧 환수 완료! 수질이 개선되었습니다.');
       }
     };
@@ -1515,7 +1587,9 @@
       render(f) {
         const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
         document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
-        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} · 지느러미 ${(f.genotype.fin||['F','F']).join('')} (${f.traitLabel})`;
+        const palette = FISH_SPECIES[f.speciesKey] && FISH_SPECIES[f.speciesKey].palette || [{ hex: 0xffffff, name: '' }];
+        const colorAlleleNames = f.colorGenes.map(i => (palette[i] || palette[0]).name).join('/');
+        document.getElementById('fish-info-genetics').innerHTML = `체색 유전자 ${colorAlleleNames} (${colorGenesToLabel(palette, f.colorGenes)}) · 색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} · 지느러미 ${(f.genotype.fin||['F','F']).join('')} (${f.traitLabel})`;
         document.getElementById('fish-info-personality').innerText = PERSONALITY[f.personality] ? PERSONALITY[f.personality].label : f.personality;
         const elapsed = Date.now() - f.birthTime;
         const stage = f.isAdult ? '성체' : '치어';
@@ -1669,7 +1743,7 @@
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
-          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName, colorVariantIndex: f.colorVariantIndex, personality: f.personality },
+          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName, colorGenes: f.colorGenes, personality: f.personality },
           startPrice: f.value, currentBid: f.value, bidder: null,
           history: [], endsAt: Date.now() + 60000
         };
@@ -1729,7 +1803,7 @@
           Sound.coin();
           alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
         } else {
-          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype, colorVariantIndex: a.fishSnapshot.colorVariantIndex, personality: a.fishSnapshot.personality }));
+          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype, colorGenes: a.fishSnapshot.colorGenes, personality: a.fishSnapshot.personality }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
         }
         State.auction = null;
@@ -1824,6 +1898,8 @@
       },
 
       feedFish() {
+        if (State.money < FEED_COST) { alert(`먹이값(₩${FEED_COST})이 부족합니다.`); return; }
+        State.money -= FEED_COST;
         Sound.init(); Sound.bubble();
         for(let i=0; i<3; i++) {
           const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color:0xf59e0b}));
@@ -1831,6 +1907,7 @@
           scene.add(mesh);
           State.foods.push({ mesh, vy: 0, driftPhase: Math.random()*Math.PI*2 });
         }
+        this.updateUI(); this.saveLocal();
       },
 
       /* Bulk starter fish purchase */
@@ -1966,6 +2043,7 @@
       updateUI() {
         document.getElementById('stat-money').innerText = `₩ ${State.money.toLocaleString()}`;
         document.getElementById('stat-fish-count').innerText = `${State.fishes.length} / ${State.tankCapacity}`;
+        WaterUI.updateBadge();
       },
 
       /* Robust Save/Load with v4 -> v5 -> v6 migration */
@@ -1973,7 +2051,7 @@
         const data = {
           version: 6,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorVariantIndex: f.colorVariantIndex, personality: f.personality })),
+          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorGenes: f.colorGenes, personality: f.personality })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
