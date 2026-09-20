@@ -19,7 +19,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, sans-serif; background: #050b14; color: var(--text-main); }
-    #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; touch-action: none; }
 
     .ui-layer {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none;
@@ -44,6 +44,7 @@
     button.btn-gold { background: linear-gradient(135deg, #d97706, #f59e0b); border: none; box-shadow: 0 4px 14px rgba(245,158,11,0.4); }
     button.btn-green { background: linear-gradient(135deg, #059669, #10b981); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.4); }
     button.btn-purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); border: none; box-shadow: 0 4px 14px rgba(139,92,246,0.4); }
+    button.btn-cyan { background: linear-gradient(135deg, #0e7490, #22d3ee); border: none; box-shadow: 0 4px 14px rgba(34,211,238,0.4); }
 
     .bottom-bar { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
     .main-action-btn { padding: 12px 24px; font-size: 15px; border-radius: 20px; }
@@ -84,6 +85,7 @@
 
     /* Build Mode */
     #build-overlay { display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid var(--accent-green); padding: 10px 20px; border-radius: 20px; z-index: 50; color: var(--accent-green); font-weight: bold; pointer-events: none; text-align: center; }
+    #build-overlay button { pointer-events: auto; margin-top: 8px; }
     #deco-edit-banner { display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); border: 1px solid var(--accent-purple); padding: 12px 20px; border-radius: 16px; z-index: 50; color: #fff; text-align: center; font-size: 13px; }
     #deco-edit-banner button { margin-top: 6px; }
 
@@ -137,13 +139,14 @@
 
     <footer class="bottom-bar interactive" id="bottom-bar">
       <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🍚 밥 주기</button>
+      <button class="btn-glass btn-cyan main-action-btn" onclick="WaterUI.doWaterChange()">🚿 환수 (₩1,000)</button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.openBuyModal()">➕ 치어 구매</button>
       <button class="btn-glass btn-purple main-action-btn" onclick="BreedingUI.open()">🧪 부화장 (교배)</button>
       <button class="btn-glass btn-green main-action-btn" onclick="AquaApp.openShopModal()">🛒 인테리어 상점</button>
     </footer>
   </div>
 
-  <div id="build-overlay">원하는 위치를 클릭해 설치하세요.<br>(우클릭: 취소)</div>
+  <div id="build-overlay">원하는 위치를 눌러 설치하세요.<br><button class="btn-glass" onclick="Builder.cancel()">✕ 취소</button></div>
   <div id="deco-edit-banner"></div>
 
   <!-- TRADE MODAL (판매 / 경매 탭) -->
@@ -935,8 +938,10 @@
         clearInterval(this.interactionTimer); this.interactionTimer = null;
       },
       qualityTick() {
+        // Degradation is intentionally gentle (not realistic-speed) so players aren't forced
+        // to water-change constantly; waste still matters, it just takes longer to add up.
         const wasteLoad = State.waste.length;
-        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.8 - 0.3));
+        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.25 - 0.1));
         State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
 
         State.fishes.forEach(f => {
@@ -1138,7 +1143,7 @@
         this.ghost.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.5; if (o.material.emissive) o.material.emissive.setHex(0x10b981); } });
         scene.add(this.ghost);
         const overlay = document.getElementById('build-overlay');
-        overlay.innerHTML = this.reuseId ? '새 위치를 클릭해 이동하세요.<br>(우클릭: 취소)' : '원하는 위치를 클릭해 설치하세요.<br>(우클릭: 취소)';
+        overlay.innerHTML = (this.reuseId ? '새 위치를 눌러 이동하세요.' : '원하는 위치를 눌러 설치하세요.') + '<br><button class="btn-glass" onclick="Builder.cancel()">✕ 취소</button>';
         overlay.style.display = 'block';
         document.getElementById('ui-layer').style.pointerEvents = 'none';
       },
@@ -1160,6 +1165,7 @@
       },
       click(e) {
         if(!this.active) return;
+        suppressNextTankClick = true; // a placement/move tap should never also fall through as an empty-tank tap
         if(e.button===2) { this.cancel(); return; } // Right click cancel
         if(!this.reuseId && State.money < this.item.price) { alert("잔액 부족"); this.cancel(); return; }
 
@@ -1194,8 +1200,13 @@
         AquaApp.updateUI();
       }
     };
-    window.addEventListener('mousemove', e=>Builder.move(e));
-    window.addEventListener('mousedown', e=>{
+    let suppressNextTankClick = false;
+    // Pointer events (not mouse-only) so dragging/tapping to place or select decorations works on touch too.
+    // Only react when the tap actually lands on the 3D canvas, not on an overlay button (취소/이동/제거/편집 종료)
+    // that happens to sit on top of it — otherwise tapping those buttons would also place/pick through them.
+    window.addEventListener('pointermove', e=>Builder.move(e));
+    window.addEventListener('pointerdown', e=>{
+      if (e.target.id !== 'webgl-canvas') return;
       if(Builder.active) { Builder.click(e); return; }
       if(DecoEditor.active) { DecoEditor.pick(e); }
     });
@@ -1203,19 +1214,23 @@
 
     const DecoEditor = {
       active: false, selected: null,
+      defaultBannerHTML() {
+        return '편집 모드: 장식물을 눌러 선택하세요.<br><button class="btn-glass" onclick="DecoEditor.toggle()">편집 종료</button>';
+      },
       toggle() {
         this.active = !this.active;
         this.selected = null;
         const banner = document.getElementById('deco-edit-banner');
         if (this.active) {
           banner.style.display = 'block';
-          banner.innerHTML = '편집 모드: 장식물을 클릭해 선택하세요. (ESC로 종료)';
+          banner.innerHTML = this.defaultBannerHTML();
           AquaApp.closeModal('shop-modal');
         } else {
           banner.style.display = 'none';
         }
       },
       pick(e) {
+        suppressNextTankClick = true; // selecting/deselecting a decoration shouldn't also startle the fish
         const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
         const ray = new THREE.Raycaster();
         ray.setFromCamera(mouse, camera);
@@ -1234,7 +1249,7 @@
       },
       cancelSelect() {
         this.selected = null;
-        document.getElementById('deco-edit-banner').innerHTML = '편집 모드: 장식물을 클릭해 선택하세요. (ESC로 종료)';
+        document.getElementById('deco-edit-banner').innerHTML = this.defaultBannerHTML();
       },
       move() {
         const data = State.decorations.find(d=>d.id===this.selected);
@@ -1264,12 +1279,14 @@
         const f = State.fishes.find(x => x.id === id);
         if (!f) return;
         this.currentId = id;
+        document.getElementById('fish-info-name').value = f.displayName;
         this.render(f);
         AquaApp.openModal('fish-info-modal');
         this._ensureTimer();
       },
+      // Only refreshes the read-only fields; deliberately never touches the name <input> so it
+      // can't clobber a name the player is still typing (this ran every second via _ensureTimer).
       render(f) {
-        document.getElementById('fish-info-name').value = f.displayName;
         const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
         document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
         document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} (${f.traitLabel})`;
@@ -1285,6 +1302,7 @@
         if (!f) return;
         const val = document.getElementById('fish-info-name').value.trim();
         f.customName = (val && val !== f.name) ? val : null;
+        document.getElementById('fish-info-name').value = f.displayName;
         AquaApp.saveLocal();
         FishListUI.renderIfOpen();
       },
@@ -1330,6 +1348,7 @@
     // Click a fish in the tank to open its info popup; tapping empty water instead
     // startles the whole school, like knocking on the glass (ignored while placing/editing decorations)
     window.addEventListener('click', e => {
+      if (suppressNextTankClick) { suppressNextTankClick = false; return; }
       if (Builder.active || DecoEditor.active) return;
       if (e.target.id !== 'webgl-canvas') return;
       const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
