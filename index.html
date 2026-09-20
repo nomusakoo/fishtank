@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <style>
     :root {
       --bg-glass: rgba(15, 23, 42, 0.85); --border-glass: rgba(255, 255, 255, 0.15);
@@ -19,7 +20,7 @@
     }
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, sans-serif; background: #050b14; color: var(--text-main); }
-    #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+    #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; touch-action: none; }
 
     .ui-layer {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none;
@@ -44,6 +45,7 @@
     button.btn-gold { background: linear-gradient(135deg, #d97706, #f59e0b); border: none; box-shadow: 0 4px 14px rgba(245,158,11,0.4); }
     button.btn-green { background: linear-gradient(135deg, #059669, #10b981); border: none; box-shadow: 0 4px 14px rgba(16,185,129,0.4); }
     button.btn-purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); border: none; box-shadow: 0 4px 14px rgba(139,92,246,0.4); }
+    button.btn-cyan { background: linear-gradient(135deg, #0e7490, #22d3ee); border: none; box-shadow: 0 4px 14px rgba(34,211,238,0.4); }
 
     .bottom-bar { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
     .main-action-btn { padding: 12px 24px; font-size: 15px; border-radius: 20px; }
@@ -84,11 +86,16 @@
 
     /* Build Mode */
     #build-overlay { display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid var(--accent-green); padding: 10px 20px; border-radius: 20px; z-index: 50; color: var(--accent-green); font-weight: bold; pointer-events: none; text-align: center; }
+    #build-overlay button { pointer-events: auto; margin-top: 8px; }
     #deco-edit-banner { display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); border: 1px solid var(--accent-purple); padding: 12px 20px; border-radius: 16px; z-index: 50; color: #fff; text-align: center; font-size: 13px; }
     #deco-edit-banner button { margin-top: 6px; }
 
     /* Utility Colors */
-    .tier-Common { color: #cbd5e1; } .tier-Rare { color: #38bdf8; } .tier-Epic { color: #d8b4fe; }
+    .tier-Common { color: #cbd5e1; }
+    .tier-Uncommon { color: #4ade80; font-weight: 600; }
+    .tier-Rare { color: #38bdf8; font-weight: 600; }
+    .tier-Epic { color: #d8b4fe; font-weight: 700; }
+    .tier-Unique { color: #fb923c; font-weight: 700; }
     .tier-Legendary {
       font-weight: bold; background: linear-gradient(90deg, #fde047, #fbbf24, #f59e0b, #fde047);
       background-size: 250% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -137,13 +144,14 @@
 
     <footer class="bottom-bar interactive" id="bottom-bar">
       <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🍚 밥 주기</button>
+      <button class="btn-glass btn-cyan main-action-btn" onclick="WaterUI.doWaterChange()">🚿 환수 (₩1,000)</button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.openBuyModal()">➕ 치어 구매</button>
       <button class="btn-glass btn-purple main-action-btn" onclick="BreedingUI.open()">🧪 부화장 (교배)</button>
       <button class="btn-glass btn-green main-action-btn" onclick="AquaApp.openShopModal()">🛒 인테리어 상점</button>
     </footer>
   </div>
 
-  <div id="build-overlay">원하는 위치를 클릭해 설치하세요.<br>(우클릭: 취소)</div>
+  <div id="build-overlay">원하는 위치를 눌러 설치하세요.<br><button class="btn-glass" onclick="Builder.cancel()">✕ 취소</button></div>
   <div id="deco-edit-banner"></div>
 
   <!-- TRADE MODAL (판매 / 경매 탭) -->
@@ -198,6 +206,7 @@
       </div>
       <div class="modal-body">
         <button class="btn-glass btn-purple" onclick="DecoEditor.toggle()">🛠 배치 편집 모드 (이동/제거)</button>
+        <div class="tab-header" id="shop-tab-header"></div>
         <div id="shop-list"></div>
       </div>
     </div>
@@ -221,6 +230,7 @@
         <div class="prediction-box">
           종류: <span id="fish-info-species"></span><br>
           유전 특성: <span id="fish-info-genetics"></span><br>
+          성격: <span id="fish-info-personality"></span><br>
           나이: <span id="fish-info-age"></span><br>
           상태(컨디션): <span id="fish-info-condition"></span><br>
           출품 시 예상 가격: <span id="fish-info-price"></span>
@@ -236,7 +246,14 @@
         <h3>📋 물고기 도감</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('fish-list-modal')">✕</button>
       </div>
-      <div class="modal-body" id="fish-list-content"></div>
+      <div class="modal-body">
+        <div class="tab-header">
+          <button class="tab-btn active" id="tab-btn-owned" onclick="FishListUI.switchTab('owned')">보유 물고기</button>
+          <button class="tab-btn" id="tab-btn-tiers" onclick="FishListUI.switchTab('tiers')">등급표</button>
+        </div>
+        <div class="tab-content active" id="fish-list-content"></div>
+        <div class="tab-content" id="tier-table-content"></div>
+      </div>
     </div>
   </div>
 
@@ -292,11 +309,11 @@
     // real species + Mendelian genotype. This maps old geneKeys to an equivalent species/genotype
     // so existing saves keep roughly the same rarity instead of breaking on load.
     const LEGACY_GENE_TO_SPECIES = {
-      BLUE:   { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
-      RED:    { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
-      GREEN:  { speciesKey: 'NEON',  genotype: { color: ['C','C'], pattern: ['m','m'] } },
-      GOLD:   { speciesKey: 'ANGEL', genotype: { color: ['c','c'], pattern: ['M','M'] } },
-      MUTANT: { speciesKey: 'BETTA', genotype: { color: ['c','c'], pattern: ['m','m'] } }
+      BLUE:   { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'], fin: ['F','F'] } },
+      RED:    { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'], fin: ['F','F'] } },
+      GREEN:  { speciesKey: 'NEON',  genotype: { color: ['C','C'], pattern: ['m','m'], fin: ['F','F'] } },
+      GOLD:   { speciesKey: 'ANGEL', genotype: { color: ['c','c'], pattern: ['M','M'], fin: ['F','F'] } },
+      MUTANT: { speciesKey: 'BETTA', genotype: { color: ['c','c'], pattern: ['m','m'], fin: ['f','f'] } }
     };
 
     const State = {
@@ -379,6 +396,22 @@
       let found = null;
       scene.traverse(o => { if (o.userData && o.userData.decoId === id) found = o; });
       return found;
+    }
+
+    // Frees GPU-side geometry/material/texture memory for a removed object. Without this, a long
+    // play session with lots of fish churn (breeding/selling/predation/death) or repeated
+    // decoration editing would slowly leak memory since scene.remove() alone doesn't free them.
+    function disposeObject3D(obj) {
+      if (!obj) return;
+      obj.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
     }
 
     const MATURITY_MS = 10 * 60 * 1000; // 10 minutes real-time to reach adulthood
@@ -530,15 +563,38 @@
     };
 
     // Real ornamental fish species catalog, priced roughly like real fry prices (원)
+    // `palette` lists real-world color morphs for each species; each individual fish randomly
+    // gets one at birth (persisted), so a tank of the same species actually looks varied instead
+    // of every guppy being identical blue. `hex`/`name` stay as the default/fallback variant.
     const FISH_SPECIES = {
-      GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY' },
-      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'MOLLY' },
-      NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA' },
-      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'CORY' },
-      BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA' },
-      ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL' },
-      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'DISCUS' }
+      GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY',
+        palette: [ {hex:0x38bdf8,name:'블루'}, {hex:0xf43f5e,name:'레드'}, {hex:0xfacc15,name:'옐로우'}, {hex:0x10b981,name:'그린'}, {hex:0x334155,name:'블랙'} ] },
+      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'MOLLY',
+        palette: [ {hex:0x1e293b,name:'블랙'}, {hex:0xf59e0b,name:'골드'}, {hex:0xf8fafc,name:'실버'}, {hex:0xfbbf24,name:'달마시안'} ] },
+      NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA',
+        palette: [ {hex:0x3b82f6,name:'블루'}, {hex:0xef4444,name:'카디널'}, {hex:0xf97316,name:'오렌지'} ] },
+      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'CORY',
+        palette: [ {hex:0x94a3b8,name:'브론즈'}, {hex:0xfda4af,name:'알비노'}, {hex:0x64748b,name:'페퍼드'} ] },
+      BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA',
+        palette: [ {hex:0xa855f7,name:'퍼플'}, {hex:0xef4444,name:'레드'}, {hex:0x3b82f6,name:'블루'}, {hex:0xf8fafc,name:'화이트'}, {hex:0xfbbf24,name:'옐로우'}, {hex:0xfb7185,name:'캄보디안'} ] },
+      ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL',
+        palette: [ {hex:0xe2e8f0,name:'실버'}, {hex:0x1e293b,name:'블랙레이스'}, {hex:0xfbbf24,name:'골드마블'}, {hex:0xf8fafc,name:'화이트'} ] },
+      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'DISCUS',
+        palette: [ {hex:0xfb7185,name:'레드'}, {hex:0x3b82f6,name:'블루'}, {hex:0x22c55e,name:'그린'}, {hex:0xfbbf24,name:'골드'}, {hex:0xf8fafc,name:'피죤블러드'} ] }
     };
+
+    // Individual behavioral traits, randomly assigned per fish, layered on top of the species'
+    // baseline temperament — real fish (even within one species) vary in boldness/activity level.
+    const PERSONALITY = {
+      ACTIVE:     { label: '활발함',     speedMult: 1.15, aggressionDelta: 0,  pauseChance: 0.0008, burstChance: 0.005 },
+      TIMID:      { label: '소심함',     speedMult: 0.95, aggressionDelta: -2, pauseChance: 0.0035, burstChance: 0.001, startleMult: 1.6 },
+      DOCILE:     { label: '온순함',     speedMult: 1.0,  aggressionDelta: -1, pauseChance: 0.0015, burstChance: 0.003 },
+      AGGRESSIVE: { label: '공격적',     speedMult: 1.05, aggressionDelta: 2,  pauseChance: 0.0010, burstChance: 0.004 },
+      CURIOUS:    { label: '호기심많음', speedMult: 1.1,  aggressionDelta: 0,  pauseChance: 0.0006, burstChance: 0.006 },
+      LAZY:       { label: '느긋함',     speedMult: 0.8,  aggressionDelta: -1, pauseChance: 0.0045, burstChance: 0.002 }
+    };
+    const PERSONALITY_KEYS = Object.keys(PERSONALITY);
+    function randomPersonality() { return PERSONALITY_KEYS[Math.floor(Math.random()*PERSONALITY_KEYS.length)]; }
 
     // Real-ish temperament: aggression (0-10) and relative size, used for fights/predation.
     // e.g. Betta are notoriously territorial; larger cichlids like Angelfish/Discus will eat small tetras.
@@ -552,35 +608,103 @@
       DISCUS: { aggression: 3, size: 3 }
     };
 
-    // --- Mendelian genetics: two independent loci (색상 C/c, 무늬 M/m), dominant/recessive ---
-    function randomAllele(dominant, recessive, recessiveChance) {
-      return Math.random() < recessiveChance ? recessive : dominant;
+    // --- Real 3D model support (for production use) ---
+    // No model files ship with this project (sourcing properly-licensed fish models is up to
+    // whoever deploys this). Drop a .glb per species here (e.g. url: 'models/guppy.glb') and it
+    // will load automatically in place of the procedural placeholder body, with graceful fallback
+    // to the procedural shape if the url is empty or the file fails to load.
+    const MODEL_CONFIG = {
+      GUPPY:  { url: '', scale: 1, rotationY: 0 },
+      MOLLY:  { url: '', scale: 1, rotationY: 0 },
+      NEON:   { url: '', scale: 1, rotationY: 0 },
+      CORY:   { url: '', scale: 1, rotationY: 0 },
+      BETTA:  { url: '', scale: 1, rotationY: 0 },
+      ANGEL:  { url: '', scale: 1, rotationY: 0 },
+      DISCUS: { url: '', scale: 1, rotationY: 0 }
+    };
+    const _modelCache = new Map(); // url -> Promise<THREE.Object3D> (the loaded template, cloned per fish)
+    function loadFishModel(url) {
+      if (!_modelCache.has(url)) {
+        _modelCache.set(url, new Promise((resolve, reject) => {
+          if (!window.THREE || !THREE.GLTFLoader) { reject(new Error('GLTFLoader unavailable')); return; }
+          new THREE.GLTFLoader().load(url, gltf => resolve(gltf), undefined, reject);
+        }));
+      }
+      return _modelCache.get(url);
+    }
+
+    // --- Mendelian genetics: three independent loci with incomplete dominance ---
+    // 색상(C/c), 무늬(M/m), 지느러미(F/f). Heterozygotes show their own blended phenotype instead of
+    // the recessive allele being fully masked (real incomplete-dominance, like red x white -> pink),
+    // which gives each locus 3 possible looks instead of 2 and makes rarity much more fine-grained.
+    const GENE_LOCI = [
+      { key: 'color',   dominant: 'C', recessive: 'c' },
+      { key: 'pattern', dominant: 'M', recessive: 'm' },
+      { key: 'fin',     dominant: 'F', recessive: 'f' }
+    ];
+    // ~12% recessive allele frequency per locus keeps the tier distribution below monotonically
+    // decreasing (each tier meaningfully rarer than the last) without any tier being a pure lottery.
+    const RECESSIVE_ALLELE_CHANCE = 0.12;
+    function randomAllele(dominant, recessive) {
+      return Math.random() < RECESSIVE_ALLELE_CHANCE ? recessive : dominant;
     }
     function randomGenotype() {
-      return {
-        color: [randomAllele('C', 'c', 0.22), randomAllele('C', 'c', 0.22)],
-        pattern: [randomAllele('M', 'm', 0.22), randomAllele('M', 'm', 0.22)]
-      };
+      const g = {};
+      GENE_LOCI.forEach(locus => { g[locus.key] = [randomAllele(locus.dominant, locus.recessive), randomAllele(locus.dominant, locus.recessive)]; });
+      return g;
     }
-    function phenotype(genotype) {
-      return {
-        colorRecessive: genotype.color[0] === 'c' && genotype.color[1] === 'c',
-        patternRecessive: genotype.pattern[0] === 'm' && genotype.pattern[1] === 'm'
-      };
+    // 0 = homozygous dominant, 1 = heterozygous (blended), 2 = homozygous recessive
+    function locusScore(pair) { return pair.filter(a => a === a.toLowerCase()).length; }
+    function totalScore(genotype) {
+      return GENE_LOCI.reduce((sum, locus) => sum + locusScore(genotype[locus.key] || [locus.dominant, locus.dominant]), 0);
+    }
+    const RARITY_TIERS = [
+      { key: 'Common',    min: 0, max: 0, mult: 1 },
+      { key: 'Uncommon',  min: 1, max: 1, mult: 2 },
+      { key: 'Rare',      min: 2, max: 2, mult: 5 },
+      { key: 'Epic',      min: 3, max: 3, mult: 12 },
+      { key: 'Unique',    min: 4, max: 4, mult: 30 },
+      { key: 'Legendary', min: 5, max: 6, mult: 80 }
+    ];
+    // Exact tier probabilities for a randomly generated fish, computed by convolving each locus's
+    // score distribution (0/1/2) across all loci — used only for the 등급표 reference display.
+    function computeTierProbabilities() {
+      const p = RECESSIVE_ALLELE_CHANCE;
+      const perLocus = [(1-p)*(1-p), 2*p*(1-p), p*p];
+      let dist = [1];
+      GENE_LOCI.forEach(() => {
+        const next = new Array(dist.length + 2).fill(0);
+        dist.forEach((prob, s) => perLocus.forEach((lp, ls) => { next[s+ls] += prob*lp; }));
+        dist = next;
+      });
+      const tierProbs = {};
+      RARITY_TIERS.forEach(t => {
+        let sum = 0;
+        for (let s = t.min; s <= t.max && s < dist.length; s++) sum += dist[s] || 0;
+        tierProbs[t.key] = sum;
+      });
+      return tierProbs;
+    }
+    function formatTierPercent(p) {
+      const pct = p*100;
+      if (pct >= 1) return pct.toFixed(1) + '%';
+      if (pct >= 0.01) return pct.toFixed(2) + '%';
+      return pct.toFixed(4) + '%';
     }
     function deriveRarity(genotype) {
-      const { colorRecessive, patternRecessive } = phenotype(genotype);
-      if (colorRecessive && patternRecessive) return { key: 'Legendary', mult: 25 };
-      if (colorRecessive) return { key: 'Epic', mult: 8 };
-      if (patternRecessive) return { key: 'Rare', mult: 3 };
-      return { key: 'Common', mult: 1 };
+      const score = totalScore(genotype);
+      return RARITY_TIERS.find(t => score >= t.min && score <= t.max) || RARITY_TIERS[RARITY_TIERS.length-1];
     }
     function traitLabel(genotype) {
-      const { colorRecessive, patternRecessive } = phenotype(genotype);
-      if (colorRecessive && patternRecessive) return '파스텔 메탈릭';
-      if (colorRecessive) return '파스텔';
-      if (patternRecessive) return '메탈릭';
-      return '일반색';
+      const colorWords = ['', '파스텔믹스', '파스텔'];
+      const patternWords = ['', '은은한 광택', '메탈릭'];
+      const finWords = ['', '롱핀', '베일테일'];
+      const parts = [
+        colorWords[locusScore(genotype.color)],
+        patternWords[locusScore(genotype.pattern)],
+        finWords[locusScore(genotype.fin || ['F','F'])]
+      ].filter(Boolean);
+      return parts.length ? parts.join(' ') : '일반색';
     }
     function orderAlleles(a, b) { return (a === a.toUpperCase()) ? a + b : b + a; }
     function punnett(pair1, pair2) {
@@ -593,10 +717,16 @@
       return Math.random() < 0.03 ? (allele === dominant ? recessive : dominant) : allele;
     }
     function mendelCross(g1, g2) {
-      return {
-        color: [maybeMutateAllele(meiosis(g1.color), 'C', 'c'), maybeMutateAllele(meiosis(g2.color), 'C', 'c')],
-        pattern: [maybeMutateAllele(meiosis(g1.pattern), 'M', 'm'), maybeMutateAllele(meiosis(g2.pattern), 'M', 'm')]
-      };
+      const child = {};
+      GENE_LOCI.forEach(locus => {
+        const p1 = g1[locus.key] || [locus.dominant, locus.dominant];
+        const p2 = g2[locus.key] || [locus.dominant, locus.dominant];
+        child[locus.key] = [
+          maybeMutateAllele(meiosis(p1), locus.dominant, locus.recessive),
+          maybeMutateAllele(meiosis(p2), locus.dominant, locus.recessive)
+        ];
+      });
+      return child;
     }
     function lightenColor(hex, amt) {
       const c = new THREE.Color(hex);
@@ -612,11 +742,16 @@
         const species = FISH_SPECIES[this.speciesKey];
         const sp = SPECIES[species.archetype] || SPECIES.GUPPY;
         this.genotype = restore.genotype || randomGenotype();
+        if (!this.genotype.fin) this.genotype.fin = ['F', 'F']; // saves from before the fin locus existed
         const rarity = deriveRarity(this.genotype);
         this.tier = rarity.key;
         this.value = Math.round(species.basePrice * rarity.mult);
         this.traitLabel = traitLabel(this.genotype);
-        this.name = species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
+        const palette = species.palette || [{ hex: species.hex, name: '' }];
+        this.colorVariantIndex = typeof restore.colorVariantIndex === 'number' ? restore.colorVariantIndex : Math.floor(Math.random()*palette.length);
+        const colorVariant = palette[this.colorVariantIndex] || palette[0];
+        this.personality = restore.personality && PERSONALITY[restore.personality] ? restore.personality : randomPersonality();
+        this.name = (colorVariant.name ? colorVariant.name + ' ' : '') + species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
         this.hunger = typeof restore.hunger === 'number' ? restore.hunger : 100;
         this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : this.value;
         // Fish restored without a recorded birth time (older saves) are treated as already grown,
@@ -631,31 +766,38 @@
         this.phase = Math.random()*Math.PI*2;
 
         this.group = new THREE.Group();
-        const { colorRecessive, patternRecessive } = phenotype(this.genotype);
-        const hex = colorRecessive ? lightenColor(species.hex, 0.5) : species.hex;
+        const colorScore = locusScore(this.genotype.color);
+        const patternScore = locusScore(this.genotype.pattern);
+        const finScore = locusScore(this.genotype.fin);
+        const hex = colorScore > 0 ? lightenColor(colorVariant.hex, colorScore * 0.3) : colorVariant.hex;
+        const metalness = [0.2, 0.55, 0.9][patternScore];
+        const emissiveIntensity = [0, 0.2, 0.4][patternScore];
         const bodyMat = new THREE.MeshStandardMaterial({
-          color: hex, metalness: patternRecessive ? 0.9 : 0.2,
-          emissive: patternRecessive ? hex : 0x000000, emissiveIntensity: patternRecessive ? 0.4 : 0.3
+          color: hex, metalness, emissive: patternScore > 0 ? hex : 0x000000, emissiveIntensity
         });
         this.bodyMat = bodyMat;
         const finMat = new THREE.MeshStandardMaterial({ color: hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.6 });
+        const finLengthMult = [1, 1.4, 2.0][finScore]; // longer/veil-tail fins for the recessive fin locus
 
         const [bx, by, bz] = sp.bodyScale;
         const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(bx, by, bz), bodyMat);
+        this._proceduralBody = body;
         this.group.add(body);
 
         if (sp.dorsal) {
           const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 3), finMat);
           dorsal.rotation.x = Math.PI/2;
           dorsal.position.set(0, 0.3*by*0.95, 0.05);
+          this._dorsal = dorsal;
           this.group.add(dorsal);
         }
 
+        const finLength = sp.finLength * finLengthMult;
         this.tailGroup = new THREE.Group();
         sp.tailAngles.forEach(a => {
-          const seg = new THREE.Mesh(new THREE.PlaneGeometry(sp.finHeight, sp.finLength), finMat);
+          const seg = new THREE.Mesh(new THREE.PlaneGeometry(sp.finHeight, finLength), finMat);
           seg.rotation.x = Math.PI/2;
-          seg.position.z = -sp.finLength/2;
+          seg.position.z = -finLength/2;
           seg.rotation.y = a;
           this.tailGroup.add(seg);
         });
@@ -683,7 +825,7 @@
 
         this.pos = new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*4, (Math.random()-0.5)*5);
         this.vel = new THREE.Vector3((Math.random()-0.5)*0.02, (Math.random()-0.5)*0.01, (Math.random()-0.5)*0.02);
-        this.maxSpeed = 0.025 + Math.random()*0.02;
+        this.maxSpeed = (0.025 + Math.random()*0.02) * PERSONALITY[this.personality].speedMult;
         this.turnRate = 0.006 + Math.random()*0.004;
         this.bottomDweller = !!sp.bottomDweller;
         this.wanderTarget = randomTankPoint(this.bottomDweller);
@@ -691,10 +833,49 @@
 
         this.group.userData.fishId = this.id;
         scene.add(this.group);
+
+        this._tryLoadModel(species);
       }
 
       get displayName() { return this.customName || this.name; }
       get isAdult() { return (Date.now() - this.birthTime) >= MATURITY_MS; }
+
+      // Swaps the procedural placeholder body for a real 3D model, if one is configured for this
+      // species and loads successfully. Silently keeps the procedural body otherwise (offline,
+      // missing file, bad url, etc.) so a broken model config never breaks the fish.
+      _tryLoadModel(species) {
+        const cfg = MODEL_CONFIG[this.speciesKey];
+        if (!cfg || !cfg.url) return;
+        loadFishModel(cfg.url).then(gltf => {
+          const model = gltf.scene.clone(true);
+          model.scale.setScalar(cfg.scale || 1);
+          model.rotation.y = cfg.rotationY || 0;
+          model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+
+          // Remove the procedural placeholder parts (body/fins/tail), keep the group itself so
+          // position/velocity/quaternion logic and the hunger/sick sprites are unaffected.
+          [this._proceduralBody, this._dorsal, this.tailGroup, this.finL, this.finR].forEach(o => {
+            if (o) { this.group.remove(o); disposeObject3D(o); }
+          });
+          this.tailGroup = null; this.finL = null; this.finR = null;
+
+          this.group.add(model);
+          this.modelRoot = model;
+          this.usingModel = true;
+
+          if (gltf.animations && gltf.animations.length > 0) {
+            this.mixer = new THREE.AnimationMixer(model);
+            this.mixer.clipAction(gltf.animations[0]).play();
+          }
+
+          // Re-anchor the hunger/sick sprites above the model's actual height instead of the
+          // procedural body's estimated height.
+          const box = new THREE.Box3().setFromObject(model);
+          const topY = box.max.y + 0.15;
+          this.hungerSprite.position.y = topY;
+          this.sickSprite.position.y = topY;
+        }).catch(() => { /* keep the procedural body */ });
+      }
 
       _updateHungerSprite() {
         const bucket = Math.max(0, Math.min(9, Math.floor(this.hunger/10)));
@@ -744,13 +925,14 @@
         // Real fish alternate quick darts, steady cruising, and brief still pauses rather than
         // moving at one constant speed. A short random "burst" occasionally multiplies top speed,
         // and (when not chasing food) a rest phase drops it to near-zero for a beat.
+        const personality = PERSONALITY[this.personality];
         this._burstTimer = (this._burstTimer || 0) - 1;
         if (this._burstTimer <= 0) {
           this._burstMultiplier = 1;
-          if (Math.random() < 0.003) { this._burstMultiplier = 2.2 + Math.random()*0.8; this._burstTimer = 20 + Math.random()*20; }
+          if (Math.random() < personality.burstChance) { this._burstMultiplier = 2.2 + Math.random()*0.8; this._burstTimer = 20 + Math.random()*20; }
         }
         this._pauseTimer = (this._pauseTimer || 0) - 1;
-        if (!targetFood && this._pauseTimer <= 0 && Math.random() < 0.0015) this._pauseTimer = 60 + Math.random()*120;
+        if (!targetFood && this._pauseTimer <= 0 && Math.random() < personality.pauseChance) this._pauseTimer = 60 + Math.random()*120;
         const isResting = !targetFood && this._pauseTimer > 0;
         const effMaxSpeed = this.maxSpeed * (isResting ? 0.12 : (this._burstMultiplier || 1));
 
@@ -798,6 +980,7 @@
           const idx = foods.indexOf(targetFood);
           if (idx > -1) {
             scene.remove(targetFood.mesh);
+            disposeObject3D(targetFood.mesh);
             foods.splice(idx, 1);
             this.hunger = Math.min(100, this.hunger + 35);
             Sound.bubble();
@@ -806,25 +989,31 @@
 
         const speed = this.vel.length();
         this._animT += 0.016;
-        const swishSpeed = 6 + speed*40;
-        this.tailGroup.rotation.y = Math.sin(this._animT*swishSpeed + this.phase) * 0.35;
-        const finAmp = speed < 0.008 ? 0.32 : 0.12;
-        this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
-        this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+        if (this.mixer) {
+          // A real model with a baked swim clip drives its own animation, sped up a little when bursting
+          this.mixer.update(0.016 * (1 + speed*10));
+        } else if (this.tailGroup) {
+          const swishSpeed = 6 + speed*40;
+          this.tailGroup.rotation.y = Math.sin(this._animT*swishSpeed + this.phase) * 0.35;
+          const finAmp = speed < 0.008 ? 0.32 : 0.12;
+          this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
+          this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+        }
       }
 
       startle(point) {
+        const mult = 3 * (PERSONALITY[this.personality].startleMult || 1);
         const away = new THREE.Vector3().subVectors(this.pos, point);
         if (away.lengthSq() < 0.0001) away.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5);
-        away.normalize().multiplyScalar(this.maxSpeed*3);
+        away.normalize().multiplyScalar(this.maxSpeed*mult);
         this.vel.add(away);
-        if (this.vel.length() > this.maxSpeed*3) this.vel.setLength(this.maxSpeed*3);
-        this._burstMultiplier = 3;
+        if (this.vel.length() > this.maxSpeed*mult) this.vel.setLength(this.maxSpeed*mult);
+        this._burstMultiplier = mult;
         this._burstTimer = 40;
         this._pauseTimer = 0;
       }
 
-      destroy() { scene.remove(this.group); }
+      destroy() { scene.remove(this.group); disposeObject3D(this.group); }
     }
 
     /* ==========================================================
@@ -861,13 +1050,15 @@
 
         if(this.p1 && this.p2) {
           document.getElementById('btn-breed').disabled = false;
-          const colorP = punnett(this.p1.genotype.color, this.p2.genotype.color);
-          const patternP = punnett(this.p1.genotype.pattern, this.p2.genotype.pattern);
           const fmt = counts => Object.entries(counts).map(([geno,n]) => `${geno} ${Math.round(n/4*100)}%`).join(', ');
+          const lines = GENE_LOCI.map(locus => {
+            const p = punnett(this.p1.genotype[locus.key] || [locus.dominant,locus.dominant], this.p2.genotype[locus.key] || [locus.dominant,locus.dominant]);
+            const label = locus.key === 'color' ? '색상' : locus.key === 'pattern' ? '무늬' : '지느러미';
+            return `${label} 유전자(${locus.dominant}/${locus.recessive}): ${fmt(p)}`;
+          }).join('<br>');
           document.getElementById('breed-prediction').innerHTML = `
             <span style="color:var(--accent-cyan)">멘델 유전 리포트 (${FISH_SPECIES[this.p1.speciesKey].name})</span><br>
-            색상 유전자(C/c): ${fmt(colorP)}<br>
-            무늬 유전자(M/m): ${fmt(patternP)}<br>
+            ${lines}<br>
             <span style="color:var(--accent-gold)">대립유전자당 돌연변이 확률: 3%</span>
           `;
         }
@@ -935,8 +1126,14 @@
         clearInterval(this.interactionTimer); this.interactionTimer = null;
       },
       qualityTick() {
+        // Degradation is intentionally gentle (not realistic-speed) so players aren't forced
+        // to water-change constantly; waste still matters, it just takes longer to add up.
         const wasteLoad = State.waste.length;
-        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.8 - 0.3));
+        const decoBonus = State.decorations.reduce((sum, d) => {
+          const item = SHOP_DB.find(i => i.id === d.type);
+          return sum + (item && item.waterEffect ? item.waterEffect : 0);
+        }, 0);
+        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.25 - 0.1 + decoBonus));
         State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
 
         State.fishes.forEach(f => {
@@ -962,16 +1159,27 @@
       },
       interactionTick() {
         const fishes = State.fishes;
+        // Hiding spots (rocks, castles, driftwood) measurably calm real fish; each one placed
+        // chips away at the fight/predation chance this tick, capped so it can't reach zero.
+        const hidingSpots = State.decorations.filter(d => {
+          const item = SHOP_DB.find(i => i.id === d.type);
+          return item && item.fishEffect === 'hiding';
+        }).length;
+        const stressFactor = Math.max(0.4, 1 - hidingSpots*0.15);
         for (let i = 0; i < fishes.length; i++) {
           for (let j = i+1; j < fishes.length; j++) {
             const a = fishes[i], b = fishes[j];
             if (!a.isAdult || !b.isAdult) continue;
             if (a.pos.distanceTo(b.pos) > 1.2) continue;
-            const ta = SPECIES_TEMPERAMENT[a.speciesKey], tb = SPECIES_TEMPERAMENT[b.speciesKey];
+            // Base species temperament, nudged by each individual's own personality trait
+            const aAgg = SPECIES_TEMPERAMENT[a.speciesKey].aggression + PERSONALITY[a.personality].aggressionDelta;
+            const bAgg = SPECIES_TEMPERAMENT[b.speciesKey].aggression + PERSONALITY[b.personality].aggressionDelta;
+            const ta = { aggression: aAgg, size: SPECIES_TEMPERAMENT[a.speciesKey].size };
+            const tb = { aggression: bAgg, size: SPECIES_TEMPERAMENT[b.speciesKey].size };
             let predator = null, prey = null;
             if (ta.size - tb.size >= 2 && ta.aggression >= 4) { predator = a; prey = b; }
             else if (tb.size - ta.size >= 2 && tb.aggression >= 4) { predator = b; prey = a; }
-            if (predator && prey && Math.random() < 0.15) {
+            if (predator && prey && Math.random() < 0.15*stressFactor) {
               showToast(`🐟 ${predator.displayName}이(가) ${prey.displayName}을(를) 잡아먹었습니다!`);
               prey.destroy();
               fishes.splice(fishes.indexOf(prey), 1);
@@ -979,7 +1187,7 @@
               AquaApp.updateUI(); AquaApp.saveLocal();
               return; // array mutated; resume next tick
             }
-            if (ta.aggression >= 5 && tb.aggression >= 5 && Math.abs(ta.size - tb.size) < 2 && Math.random() < 0.1) {
+            if (ta.aggression >= 5 && tb.aggression >= 5 && Math.abs(ta.size - tb.size) < 2 && Math.random() < 0.1*stressFactor) {
               showToast(`⚔️ ${a.displayName}와(과) ${b.displayName}이(가) 다퉜습니다!`);
               a.hunger = Math.max(0, a.hunger - 15);
               b.hunger = Math.max(0, b.hunger - 15);
@@ -1008,7 +1216,7 @@
         State.money -= 1000;
         State.water.quality = Math.min(100, State.water.quality + 45);
         State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
-        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste.forEach(w => { scene.remove(w.mesh); disposeObject3D(w.mesh); });
         State.waste = [];
         Sound.init(); Sound.bubble();
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -1020,20 +1228,28 @@
     /* ==========================================================
        5. SHOP & BUILD SYSTEM
        ========================================================== */
+    // waterEffect: added to water quality every WaterSystem tick while placed (real aquarium plants
+    // and aeration measurably help; driftwood tannins actually lower pH/quality a touch).
+    // fishEffect 'hiding': real hiding spots reduce stress, so they lower the fight/predation chance.
     const SHOP_DB = [
-      { id: 'plant', name: '나나 수초', price: 2000, type: 'deco', surface: 'floor' },
-      { id: 'rock', name: '청룡석', price: 5000, type: 'deco', surface: 'floor' },
-      { id: 'driftwood', name: '유목', price: 7000, type: 'deco', surface: 'floor' },
-      { id: 'coral', name: '산호 군락', price: 9000, type: 'deco', surface: 'floor' },
-      { id: 'castle', name: '수중 성', price: 15000, type: 'deco', surface: 'floor' },
-      { id: 'bubbler', name: '버블러', price: 4000, type: 'deco', surface: 'floor' },
-      { id: 'wallplant', name: '벽면 이끼', price: 3000, type: 'deco', surface: 'wall' },
-      { id: 'hanging', name: '부유 장식볼', price: 3500, type: 'deco', surface: 'floating' },
-      { id: 'floor-white', name: '흰 모래 바닥재', price: 6000, type: 'floor-style', styleId: 'white' },
-      { id: 'floor-black', name: '블랙 사막 바닥재', price: 6000, type: 'floor-style', styleId: 'black' },
-      { id: 'bg-reef', name: '산호초 배경', price: 8000, type: 'bg-style', styleId: 'reef' },
-      { id: 'bg-night', name: '심해 야간 배경', price: 8000, type: 'bg-style', styleId: 'night' },
-      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up' }
+      { id: 'plant', name: '나나 수초', price: 2000, type: 'deco', surface: 'floor', category: 'deco', waterEffect: 0.02, effectDesc: '수질 개선 (+)' },
+      { id: 'rock', name: '청룡석', price: 5000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', effectDesc: '은신처 (스트레스 감소)' },
+      { id: 'driftwood', name: '유목', price: 7000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', waterEffect: -0.01, effectDesc: '은신처 · 수질 소폭 저하 (탄닌)' },
+      { id: 'coral', name: '산호 군락', price: 9000, type: 'deco', surface: 'floor', category: 'deco', effectDesc: '순수 장식용' },
+      { id: 'castle', name: '수중 성', price: 15000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', effectDesc: '은신처 (스트레스 감소)' },
+      { id: 'bubbler', name: '버블러', price: 4000, type: 'deco', surface: 'floor', category: 'deco', waterEffect: 0.05, effectDesc: '수질 개선 (++, 산소 공급)' },
+      { id: 'wallplant', name: '벽면 이끼', price: 3000, type: 'deco', surface: 'wall', category: 'deco', waterEffect: 0.02, effectDesc: '수질 개선 (+)' },
+      { id: 'hanging', name: '부유 장식볼', price: 3500, type: 'deco', surface: 'floating', category: 'deco', effectDesc: '순수 장식용' },
+      { id: 'floor-white', name: '흰 모래 바닥재', price: 6000, type: 'floor-style', styleId: 'white', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'floor-black', name: '블랙 사막 바닥재', price: 6000, type: 'floor-style', styleId: 'black', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'bg-reef', name: '산호초 배경', price: 8000, type: 'bg-style', styleId: 'reef', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'bg-night', name: '심해 야간 배경', price: 8000, type: 'bg-style', styleId: 'night', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up', category: 'facility', effectDesc: '수용량 +5' }
+    ];
+    const SHOP_CATEGORIES = [
+      { key: 'deco', label: '장식물' },
+      { key: 'environment', label: '바닥·배경' },
+      { key: 'facility', label: '시설' }
     ];
 
     function createDeco(type) {
@@ -1138,7 +1354,7 @@
         this.ghost.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.5; if (o.material.emissive) o.material.emissive.setHex(0x10b981); } });
         scene.add(this.ghost);
         const overlay = document.getElementById('build-overlay');
-        overlay.innerHTML = this.reuseId ? '새 위치를 클릭해 이동하세요.<br>(우클릭: 취소)' : '원하는 위치를 클릭해 설치하세요.<br>(우클릭: 취소)';
+        overlay.innerHTML = (this.reuseId ? '새 위치를 눌러 이동하세요.' : '원하는 위치를 눌러 설치하세요.') + '<br><button class="btn-glass" onclick="Builder.cancel()">✕ 취소</button>';
         overlay.style.display = 'block';
         document.getElementById('ui-layer').style.pointerEvents = 'none';
       },
@@ -1160,6 +1376,7 @@
       },
       click(e) {
         if(!this.active) return;
+        suppressNextTankClick = true; // a placement/move tap should never also fall through as an empty-tank tap
         if(e.button===2) { this.cancel(); return; } // Right click cancel
         if(!this.reuseId && State.money < this.item.price) { alert("잔액 부족"); this.cancel(); return; }
 
@@ -1167,7 +1384,7 @@
         let data;
         if (this.reuseId) {
           const old = sceneFindByDecoId(this.reuseId);
-          if (old) scene.remove(old);
+          if (old) { scene.remove(old); disposeObject3D(old); }
           data = State.decorations.find(d => d.id === this.reuseId);
           data.x = this.ghost.position.x; data.y = this.ghost.position.y; data.z = this.ghost.position.z; data.rotationY = this.ghost.rotation.y;
         } else {
@@ -1188,14 +1405,19 @@
         scene.add(m);
       },
       cancel() {
-        this.active = false; scene.remove(this.ghost); this.ghost=null; this.reuseId = null;
+        this.active = false; scene.remove(this.ghost); disposeObject3D(this.ghost); this.ghost=null; this.reuseId = null;
         document.getElementById('build-overlay').style.display = 'none';
         document.getElementById('ui-layer').style.pointerEvents = 'none';
         AquaApp.updateUI();
       }
     };
-    window.addEventListener('mousemove', e=>Builder.move(e));
-    window.addEventListener('mousedown', e=>{
+    let suppressNextTankClick = false;
+    // Pointer events (not mouse-only) so dragging/tapping to place or select decorations works on touch too.
+    // Only react when the tap actually lands on the 3D canvas, not on an overlay button (취소/이동/제거/편집 종료)
+    // that happens to sit on top of it — otherwise tapping those buttons would also place/pick through them.
+    window.addEventListener('pointermove', e=>Builder.move(e));
+    window.addEventListener('pointerdown', e=>{
+      if (e.target.id !== 'webgl-canvas') return;
       if(Builder.active) { Builder.click(e); return; }
       if(DecoEditor.active) { DecoEditor.pick(e); }
     });
@@ -1203,19 +1425,23 @@
 
     const DecoEditor = {
       active: false, selected: null,
+      defaultBannerHTML() {
+        return '편집 모드: 장식물을 눌러 선택하세요.<br><button class="btn-glass" onclick="DecoEditor.toggle()">편집 종료</button>';
+      },
       toggle() {
         this.active = !this.active;
         this.selected = null;
         const banner = document.getElementById('deco-edit-banner');
         if (this.active) {
           banner.style.display = 'block';
-          banner.innerHTML = '편집 모드: 장식물을 클릭해 선택하세요. (ESC로 종료)';
+          banner.innerHTML = this.defaultBannerHTML();
           AquaApp.closeModal('shop-modal');
         } else {
           banner.style.display = 'none';
         }
       },
       pick(e) {
+        suppressNextTankClick = true; // selecting/deselecting a decoration shouldn't also startle the fish
         const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
         const ray = new THREE.Raycaster();
         ray.setFromCamera(mouse, camera);
@@ -1234,7 +1460,7 @@
       },
       cancelSelect() {
         this.selected = null;
-        document.getElementById('deco-edit-banner').innerHTML = '편집 모드: 장식물을 클릭해 선택하세요. (ESC로 종료)';
+        document.getElementById('deco-edit-banner').innerHTML = this.defaultBannerHTML();
       },
       move() {
         const data = State.decorations.find(d=>d.id===this.selected);
@@ -1248,7 +1474,7 @@
         const idx = State.decorations.findIndex(d=>d.id===this.selected);
         if (idx===-1) return;
         const old = sceneFindByDecoId(this.selected);
-        if (old) scene.remove(old);
+        if (old) { scene.remove(old); disposeObject3D(old); }
         State.decorations.splice(idx,1);
         AquaApp.saveLocal();
         this.cancelSelect();
@@ -1264,15 +1490,18 @@
         const f = State.fishes.find(x => x.id === id);
         if (!f) return;
         this.currentId = id;
+        document.getElementById('fish-info-name').value = f.displayName;
         this.render(f);
         AquaApp.openModal('fish-info-modal');
         this._ensureTimer();
       },
+      // Only refreshes the read-only fields; deliberately never touches the name <input> so it
+      // can't clobber a name the player is still typing (this ran every second via _ensureTimer).
       render(f) {
-        document.getElementById('fish-info-name').value = f.displayName;
         const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
         document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
-        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} (${f.traitLabel})`;
+        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} · 지느러미 ${(f.genotype.fin||['F','F']).join('')} (${f.traitLabel})`;
+        document.getElementById('fish-info-personality').innerText = PERSONALITY[f.personality] ? PERSONALITY[f.personality].label : f.personality;
         const elapsed = Date.now() - f.birthTime;
         const stage = f.isAdult ? '성체' : '치어';
         const remain = Math.max(0, MATURITY_MS - elapsed);
@@ -1285,6 +1514,7 @@
         if (!f) return;
         const val = document.getElementById('fish-info-name').value.trim();
         f.customName = (val && val !== f.name) ? val : null;
+        document.getElementById('fish-info-name').value = f.displayName;
         AquaApp.saveLocal();
         FishListUI.renderIfOpen();
       },
@@ -1316,6 +1546,7 @@
       },
       open() {
         this.render();
+        this.switchTab('owned');
         AquaApp.openModal('fish-list-modal');
       },
       openDetail(id) {
@@ -1324,12 +1555,30 @@
       },
       renderIfOpen() {
         if (document.getElementById('fish-list-modal').classList.contains('active')) this.render();
+      },
+      switchTab(tab) {
+        document.getElementById('tab-btn-owned').classList.toggle('active', tab === 'owned');
+        document.getElementById('tab-btn-tiers').classList.toggle('active', tab === 'tiers');
+        document.getElementById('fish-list-content').classList.toggle('active', tab === 'owned');
+        document.getElementById('tier-table-content').classList.toggle('active', tab === 'tiers');
+        if (tab === 'tiers') this.renderTierTable();
+      },
+      renderTierTable() {
+        const probs = computeTierProbabilities();
+        const c = document.getElementById('tier-table-content');
+        c.innerHTML = RARITY_TIERS.map(t => `
+          <div class="list-item">
+            <span class="tier-${t.key}" style="font-size:15px;">${t.key}</span>
+            <span class="cond-text">가격 배율 ×${t.mult} · 출현 확률 약 ${formatTierPercent(probs[t.key])}</span>
+          </div>
+        `).join('') + `<div class="cond-text" style="margin-top:8px;">확률은 무작위(구매) 기준이며, 교배 결과는 부모의 유전자에 따라 달라집니다. 우성 유전자가 많을수록 흔하고, 열성이 많을수록 희귀합니다.</div>`;
       }
     };
 
     // Click a fish in the tank to open its info popup; tapping empty water instead
     // startles the whole school, like knocking on the glass (ignored while placing/editing decorations)
     window.addEventListener('click', e => {
+      if (suppressNextTankClick) { suppressNextTankClick = false; return; }
       if (Builder.active || DecoEditor.active) return;
       if (e.target.id !== 'webgl-canvas') return;
       const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
@@ -1350,7 +1599,18 @@
     /* ==========================================================
        7. AUCTION SYSTEM
        ========================================================== */
-    const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Legendary'];
+    const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Unique', 'Legendary'];
+    // Rarer fish start proportionally high already (via their tier price multiplier), and now also
+    // climb further and wider above that start price — but capped, so a Legendary auction can't
+    // spiral into an absurd windfall that trivializes the game's economy.
+    const TIER_AUCTION_CONFIG = {
+      Common:    { incMin: 1.03, incMax: 1.10, capMult: 1.3 },
+      Uncommon:  { incMin: 1.04, incMax: 1.12, capMult: 1.5 },
+      Rare:      { incMin: 1.05, incMax: 1.15, capMult: 1.8 },
+      Epic:      { incMin: 1.06, incMax: 1.18, capMult: 2.2 },
+      Unique:    { incMin: 1.08, incMax: 1.22, capMult: 2.6 },
+      Legendary: { incMin: 1.10, incMax: 1.28, capMult: 3.2 }
+    };
     const AuctionUI = {
       bidTimeout: null, tickInterval: null,
 
@@ -1394,8 +1654,8 @@
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
-          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName },
-          currentBid: f.value, bidder: null,
+          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName, colorVariantIndex: f.colorVariantIndex, personality: f.personality },
+          startPrice: f.value, currentBid: f.value, bidder: null,
           history: [], endsAt: Date.now() + 60000
         };
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -1406,13 +1666,16 @@
         clearTimeout(this.bidTimeout);
         const scheduleNext = () => {
           if (!State.auction) return;
+          const cfg = TIER_AUCTION_CONFIG[State.auction.fishSnapshot.tier] || TIER_AUCTION_CONFIG.Common;
+          const cap = Math.round(State.auction.startPrice * cfg.capMult);
+          if (State.auction.currentBid >= cap) return; // fully bid up for this tier, stop scheduling
           const delay = 4000 + Math.random()*4000;
           this.bidTimeout = setTimeout(() => {
             if (!State.auction) return;
             if (Date.now() >= State.auction.endsAt) return;
             if (Math.random() < 0.7) {
-              const inc = 1.05 + Math.random()*0.15;
-              State.auction.currentBid = Math.round(State.auction.currentBid * inc);
+              const inc = cfg.incMin + Math.random()*(cfg.incMax - cfg.incMin);
+              State.auction.currentBid = Math.min(cap, Math.round(State.auction.currentBid * inc));
               State.auction.bidder = 'npc';
               State.auction.history.push({ bidder: 'npc', amount: State.auction.currentBid, t: Date.now() });
               if (State.auction.endsAt - Date.now() < 10000) State.auction.endsAt = Date.now() + 10000;
@@ -1451,7 +1714,7 @@
           Sound.coin();
           alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
         } else {
-          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype }));
+          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype, colorVariantIndex: a.fishSnapshot.colorVariantIndex, personality: a.fishSnapshot.personality }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
         }
         State.auction = null;
@@ -1461,6 +1724,7 @@
 
       resume() {
         if (!State.auction) return;
+        if (typeof State.auction.startPrice !== 'number') State.auction.startPrice = State.auction.currentBid; // older saves
         if (Date.now() >= State.auction.endsAt) {
           this.resolve();
         } else {
@@ -1501,6 +1765,7 @@
                  State.waste.push({ mesh: food.mesh, vy: 0 });
                } else {
                  scene.remove(food.mesh);
+                 disposeObject3D(food.mesh);
                }
                State.foods.splice(i,1);
              }
@@ -1600,14 +1865,31 @@
         document.getElementById('trade-modal').classList.add('active');
       },
       openShopModal() {
+        const header = document.getElementById('shop-tab-header');
+        header.innerHTML = SHOP_CATEGORIES.map((c, i) =>
+          `<button class="tab-btn${i===0?' active':''}" id="shop-tab-${c.key}" onclick="AquaApp.switchShopTab('${c.key}')">${c.label}</button>`
+        ).join('');
+        this._shopCategory = SHOP_CATEGORIES[0].key;
+        this.renderShopList();
+        document.getElementById('shop-modal').classList.add('active');
+      },
+      switchShopTab(category) {
+        this._shopCategory = category;
+        SHOP_CATEGORIES.forEach(c => document.getElementById(`shop-tab-${c.key}`).classList.toggle('active', c.key === category));
+        this.renderShopList();
+      },
+      renderShopList() {
         const list = document.getElementById('shop-list');
-        list.innerHTML = SHOP_DB.map(i => `
+        const items = SHOP_DB.filter(i => (i.category || 'deco') === this._shopCategory);
+        list.innerHTML = items.map(i => `
           <div class="list-item">
-            <div><b>${i.name}</b></div>
+            <div>
+              <b>${i.name}</b>
+              <div class="cond-text">${i.effectDesc || ''}</div>
+            </div>
             <button class="btn-glass btn-green" onclick="AquaApp.buyShop('${i.id}')">₩${i.price.toLocaleString()}</button>
           </div>
         `).join('');
-        document.getElementById('shop-modal').classList.add('active');
       },
       closeModal(id) { document.getElementById(id).classList.remove('active'); },
       closeOutside(e, id) { if(e.target.id === id) this.closeModal(id); },
@@ -1676,7 +1958,7 @@
         const data = {
           version: 6,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer })),
+          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorVariantIndex: f.colorVariantIndex, personality: f.personality })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
@@ -1750,11 +2032,11 @@
 
         State.fishes.forEach(f => f.destroy());
         State.fishes = [];
-        State.foods.forEach(f => scene.remove(f.mesh));
+        State.foods.forEach(f => { scene.remove(f.mesh); disposeObject3D(f.mesh); });
         State.foods = [];
-        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste.forEach(w => { scene.remove(w.mesh); disposeObject3D(w.mesh); });
         State.waste = [];
-        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) scene.remove(m); });
+        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) { scene.remove(m); disposeObject3D(m); } });
         State.decorations = [];
         State.money = 35000;
         State.tankCapacity = 8;
