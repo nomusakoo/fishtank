@@ -143,6 +143,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="btn-glass" onclick="TankManager.open()">🏠 <span id="tank-switch-label">1번 어항</span></button>
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
         <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
@@ -283,6 +284,21 @@
     </div>
   </div>
 
+  <!-- TANK SWITCHER MODAL -->
+  <div class="modal-overlay interactive" id="tank-modal" onclick="AquaApp.closeOutside(event, 'tank-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🏠 어항 관리</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('tank-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="cond-text">어항을 선택하면 해당 어항으로 이동해서 관리할 수 있습니다.</div>
+        <div id="tank-switch-list"></div>
+        <div class="cond-text">새 어항은 인테리어 상점 &gt; 시설 탭에서 구매할 수 있습니다. (다음 어항 가격: ₩<span id="tank-buy-cost">40,000</span>)</div>
+      </div>
+    </div>
+  </div>
+
   <!-- BUY MODAL -->
   <div class="modal-overlay interactive" id="buy-modal" onclick="AquaApp.closeOutside(event, 'buy-modal')">
     <div class="modal-card">
@@ -309,7 +325,8 @@
     /* ==========================================================
        1. GAME STATE & AUDIO
        ========================================================== */
-    const SAVE_KEY = 'aqua_save_v6';
+    const SAVE_KEY = 'aqua_save_v7';
+    const LEGACY_SAVE_KEY_V6 = 'aqua_save_v6';
     const LEGACY_SAVE_KEY_V5 = 'aqua_save_v5';
     const LEGACY_SAVE_KEY_V4 = 'aqua_save_v4';
     // v5 stored fish by a fixed geneKey (BLUE/RED/GREEN/GOLD/MUTANT); v6 replaced that with a
@@ -326,8 +343,24 @@
     const State = {
       money: 35000, tankCapacity: 8, fishes: [], foods: [], decorations: [], waste: [],
       floorStyle: 'default', bgStyle: 'default', auction: null,
-      water: { quality: 100, ph: 7.0 }
+      water: { quality: 100, ph: 7.0 },
+      // Only the active tank's fish/decorations/water/etc. are "live" (the fields above always
+      // describe it). Every other tank sits frozen as a plain-data snapshot in `tanks` until the
+      // player switches to it. See TankManager.
+      tanks: [], activeTankIndex: 0
     };
+    function buildTankSnapshot(overrides) {
+      return Object.assign({
+        id: Math.random().toString(36).substr(2,9),
+        name: '어항',
+        tankCapacity: 8,
+        fishes: [],
+        decorations: [],
+        floorStyle: 'default',
+        bgStyle: 'default',
+        water: { quality: 100, ph: 7.0 }
+      }, overrides);
+    }
 
     function showToast(msg, ms) {
       let el = document.getElementById('toast-container');
@@ -649,9 +682,10 @@
       { key: 'pattern', dominant: 'M', recessive: 'm' },
       { key: 'fin',     dominant: 'F', recessive: 'f' }
     ];
-    // ~12% recessive allele frequency per locus keeps the tier distribution below monotonically
+    // ~17% recessive allele frequency per locus keeps the tier distribution below monotonically
     // decreasing (each tier meaningfully rarer than the last) without any tier being a pure lottery.
-    const RECESSIVE_ALLELE_CHANCE = 0.12;
+    // Bumped up from 0.12 so higher tiers come up noticeably more often.
+    const RECESSIVE_ALLELE_CHANCE = 0.17;
     function randomAllele(dominant, recessive) {
       return Math.random() < RECESSIVE_ALLELE_CHANCE ? recessive : dominant;
     }
@@ -779,6 +813,54 @@
       return counts;
     }
 
+    // --- Realistic model skin: countershading + genotype-driven markings, baked as vertex colors
+    // (the source models have no UVs, so a texture map isn't an option) ---
+    // Real fish are darker on the dorsal (back) side and lighter on the ventral (belly) side; this
+    // alone makes a single-material model read as a solid, shaded creature instead of a flat blob.
+    // On top of that, the pattern locus (0/1/2, same one that already drives metalness/emissive)
+    // bakes visible banding along the body so patterned individuals actually look marked, not just
+    // shinier.
+    function applyBodyPattern(geometry, patternScore) {
+      const pos = geometry.attributes.position;
+      const count = pos.count;
+      geometry.computeBoundingBox();
+      const bbox = geometry.boundingBox;
+      const ySpan = (bbox.max.y - bbox.min.y) || 1;
+      const zSpan = (bbox.max.z - bbox.min.z) || 1;
+      const bandFreq = 9 / zSpan;
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        const yN = (pos.getY(i) - bbox.min.y) / ySpan; // 0 belly .. 1 back
+        const shade = 1.18 - yN * 0.4; // countershading: lighter belly, darker back
+        const band = 0.5 + 0.5 * Math.sin(pos.getZ(i) * bandFreq);
+        const bandMult = 1 - band * (patternScore * 0.16); // 0 = plain, 2 = bold banding
+        const v = Math.max(0.4, shade * bandMult);
+        colors[i*3] = v; colors[i*3+1] = v; colors[i*3+2] = v;
+      }
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    }
+    // Heuristic eye-bump finder: the source meshes have no separate eye submesh, but on nearly
+    // every fish the eye is the most laterally-protruding point somewhere in the head third of the
+    // body (excluding the very tip, which is the mouth/snout). Scanning for the widest |x| vertex
+    // in that band gives a reasonable approximation without needing UVs or manual per-species
+    // coordinates. Assumes left/right bilateral symmetry, which holds for all of these models.
+    function estimateEyePosition(geometry) {
+      const pos = geometry.attributes.position;
+      geometry.computeBoundingBox();
+      const bbox = geometry.boundingBox;
+      const zSpan = (bbox.max.z - bbox.min.z) || 1;
+      const zMin = bbox.max.z - zSpan * 0.42;
+      const zMax = bbox.max.z - zSpan * 0.04;
+      let best = null, bestAbsX = -Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        const z = pos.getZ(i);
+        if (z < zMin || z > zMax) continue;
+        const absX = Math.abs(pos.getX(i));
+        if (absX > bestAbsX) { bestAbsX = absX; best = { x: absX, y: pos.getY(i), z }; }
+      }
+      return best;
+    }
+
     class Fish {
       constructor(speciesKey, restore) {
         restore = restore || {};
@@ -816,8 +898,14 @@
         this.phase = Math.random()*Math.PI*2;
 
         this.group = new THREE.Group();
+        // All body/fin/model visuals live under visualRoot so a single scale factor can grow the
+        // fish from a small juvenile up to full adult size over MATURITY_MS, independent of the
+        // hunger/sick sprites (which stay attached directly to `group` and are rescaled separately).
+        this.visualRoot = new THREE.Group();
+        this.group.add(this.visualRoot);
         const colorScore = locusScore(this.genotype.color);
         const patternScore = locusScore(this.genotype.pattern);
+        this.patternScore = patternScore; // reused later by _tryLoadModel to bake body markings
         const finScore = locusScore(this.genotype.fin);
         const baseHex = colorGenesToHex(palette, this.colorGenes);
         const hex = colorScore > 0 ? lightenColor(baseHex, colorScore * 0.3) : baseHex;
@@ -833,14 +921,14 @@
         const [bx, by, bz] = sp.bodyScale;
         const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(bx, by, bz), bodyMat);
         this._proceduralBody = body;
-        this.group.add(body);
+        this.visualRoot.add(body);
 
         if (sp.dorsal) {
           const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 3), finMat);
           dorsal.rotation.x = Math.PI/2;
           dorsal.position.set(0, 0.3*by*0.95, 0.05);
           this._dorsal = dorsal;
-          this.group.add(dorsal);
+          this.visualRoot.add(dorsal);
         }
 
         const finLength = sp.finLength * finLengthMult;
@@ -853,7 +941,7 @@
           this.tailGroup.add(seg);
         });
         this.tailGroup.position.z = -(0.3*bz + 0.05);
-        this.group.add(this.tailGroup);
+        this.visualRoot.add(this.tailGroup);
 
         this.finL = new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.18), finMat);
         this.finL.position.set(0.3*bx*0.95, 0, 0.3*bz*0.2);
@@ -862,15 +950,20 @@
         this.finR = this.finL.clone();
         this.finR.position.x = -0.3*bx*0.95;
         this.finR.rotation.z = -0.3;
-        this.group.add(this.finL, this.finR);
+        this.visualRoot.add(this.finL, this.finR);
+
+        // Reference (full-grown) local Y/X offsets for the sprites; update() rescales these by the
+        // current growth factor each frame so they track the fish as it grows from juvenile to adult.
+        this._spriteBaseY = 0.3*by*1.6 + 0.15;
+        this._sickBaseX = 0.22;
 
         this.hungerSprite = makeHungerSprite();
-        this.hungerSprite.position.set(0, 0.3*by*1.6 + 0.15, 0);
+        this.hungerSprite.position.set(0, this._spriteBaseY, 0);
         this.group.add(this.hungerSprite);
         this._updateHungerSprite();
 
         this.sickSprite = makeSickSprite();
-        this.sickSprite.position.set(0.22, 0.3*by*1.6 + 0.15, 0);
+        this.sickSprite.position.set(this._sickBaseX, this._spriteBaseY, 0);
         this.sickSprite.visible = this.sick;
         this.group.add(this.sickSprite);
 
@@ -890,6 +983,13 @@
 
       get displayName() { return this.customName || this.name; }
       get isAdult() { return (Date.now() - this.birthTime) >= MATURITY_MS; }
+      // Juveniles start at 45% scale and grow linearly to full size by MATURITY_MS, so a fresh
+      // fry is visibly small next to an adult of the same species instead of being identical size.
+      get growthScale() {
+        const JUVENILE_SCALE = 0.45;
+        const t = Math.max(0, Math.min(1, (Date.now() - this.birthTime) / MATURITY_MS));
+        return JUVENILE_SCALE + (1 - JUVENILE_SCALE) * t;
+      }
 
       // Swaps the procedural placeholder body for a real 3D model, if one is configured for this
       // species and loads successfully. Silently keeps the procedural body otherwise (offline,
@@ -898,32 +998,59 @@
         const cfg = MODEL_CONFIG[this.speciesKey];
         if (!cfg || !cfg.url) return;
         loadFishModel(cfg.url).then(gltf => {
+          // The eye-bump heuristic only needs to scan the shared template geometry once per
+          // species, not once per fish; cache it on the (shared, promise-cached) gltf object.
+          if (gltf._eyePos === undefined) {
+            let bodyGeo = null;
+            gltf.scene.traverse(o => { if (o.isMesh && o.name !== 'tail') bodyGeo = o.geometry; });
+            gltf._eyePos = bodyGeo ? estimateEyePosition(bodyGeo) : null;
+          }
+
           const model = gltf.scene.clone(true);
           model.scale.setScalar(cfg.scale || 1);
           model.rotation.y = cfg.rotationY || 0;
 
           // Reuse this fish's existing genotype/color-variant-derived material so a model-based
-          // fish still looks distinct per trait, the same way the procedural body does.
+          // fish still looks distinct per trait, the same way the procedural body does. Each mesh
+          // gets its own geometry clone (the cached template geometry is shared across every fish
+          // of this species) so the baked countershading/pattern vertex colors below are unique
+          // per individual instead of overwriting the shared template.
           let tailNode = null;
           model.traverse(o => {
             if (o.isMesh) {
               o.castShadow = false; o.receiveShadow = false;
+              o.geometry = o.geometry.clone();
+              applyBodyPattern(o.geometry, this.patternScore);
               o.material = o.name === 'tail' ? this.bodyMat.clone() : this.bodyMat;
+              o.material.vertexColors = true;
+              o.material.needsUpdate = true;
             }
             if (o.name === 'tail') tailNode = o;
           });
 
+          // Add a small dark eye on each side at the heuristically-located bump, so the fish reads
+          // as a creature with a face instead of a featureless single-color blob.
+          if (gltf._eyePos) {
+            const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.25, metalness: 0.1 });
+            const eyeRadius = Math.max(0.012, gltf._eyePos.x * 0.24);
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(eyeRadius, 8, 6), eyeMat);
+            eyeL.position.set(gltf._eyePos.x * 1.03, gltf._eyePos.y, gltf._eyePos.z);
+            const eyeR = eyeL.clone();
+            eyeR.position.x = -gltf._eyePos.x * 1.03;
+            model.add(eyeL, eyeR);
+          }
+
           // Remove the procedural placeholder parts (body/fins/tail), keep the group itself so
           // position/velocity/quaternion logic and the hunger/sick sprites are unaffected.
           [this._proceduralBody, this._dorsal, this.tailGroup, this.finL, this.finR].forEach(o => {
-            if (o) { this.group.remove(o); disposeObject3D(o); }
+            if (o) { this.visualRoot.remove(o); disposeObject3D(o); }
           });
           this.finL = null; this.finR = null;
           // A tail node exported as its own pivoted sub-mesh (see models/README) lets us drive the
           // exact same sine-wave swim animation the procedural body uses, instead of a static mesh.
           this.tailGroup = tailNode || null;
 
-          this.group.add(model);
+          this.visualRoot.add(model);
           this.modelRoot = model;
           this.usingModel = true;
 
@@ -933,11 +1060,12 @@
           }
 
           // Re-anchor the hunger/sick sprites above the model's actual height instead of the
-          // procedural body's estimated height.
+          // procedural body's estimated height. box.max.y is in world space (includes the fish's
+          // current position and current growth scale), so convert back to a local, full-grown
+          // reference offset the same way _spriteBaseY already works for the procedural body.
           const box = new THREE.Box3().setFromObject(model);
-          const topY = box.max.y + 0.15;
-          this.hungerSprite.position.y = topY;
-          this.sickSprite.position.y = topY;
+          const localTopY = (box.max.y - this.group.position.y) + 0.15;
+          this._spriteBaseY = localTopY / (this.growthScale || 1);
         }).catch(() => { /* keep the procedural body */ });
       }
 
@@ -964,6 +1092,11 @@
         this.hunger = Math.max(0, this.hunger - 0.0015 * (1 + qualityPenalty));
         this._updateHungerSprite();
         this.sickSprite.visible = this.sick;
+
+        const gs = this.growthScale;
+        this.visualRoot.scale.setScalar(gs);
+        this.hungerSprite.position.set(0, this._spriteBaseY * gs, 0);
+        this.sickSprite.position.set(this._sickBaseX * gs, this._spriteBaseY * gs, 0);
 
         if (this.hunger <= 0) {
           this._starveTimer++;
@@ -1330,7 +1463,8 @@
       { id: 'floor-black', name: '블랙 사막 바닥재', price: 6000, type: 'floor-style', styleId: 'black', category: 'environment', effectDesc: '순수 장식용' },
       { id: 'bg-reef', name: '산호초 배경', price: 8000, type: 'bg-style', styleId: 'reef', category: 'environment', effectDesc: '순수 장식용' },
       { id: 'bg-night', name: '심해 야간 배경', price: 8000, type: 'bg-style', styleId: 'night', category: 'environment', effectDesc: '순수 장식용' },
-      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up', category: 'facility', effectDesc: '수용량 +5' }
+      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up', category: 'facility', effectDesc: '수용량 +5' },
+      { id: 'new-tank', name: '새 어항 구매', price: 0, type: 'new-tank', category: 'facility', effectDesc: '별도로 관리할 수 있는 새 어항을 만듭니다 (구매할수록 가격 상승)' }
     ];
     const SHOP_CATEGORIES = [
       { key: 'deco', label: '장식물' },
@@ -1690,7 +1824,11 @@
     const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Unique', 'Legendary'];
     // Rarer fish start proportionally high already (via their tier price multiplier), and now also
     // climb further and wider above that start price — but capped, so a Legendary auction can't
-    // spiral into an absurd windfall that trivializes the game's economy.
+    // spiral into an absurd windfall that trivializes the game's economy. capMult here is a base;
+    // each listing rolls its own random "collector fever" bonus on top (see list()) so the ceiling
+    // isn't identical every time, and the starting price itself is nudged by how good an individual
+    // fish is within its tier (see auctionQualityMultiplier), so same-tier fish don't all cap out
+    // at the exact same price.
     const TIER_AUCTION_CONFIG = {
       Common:    { incMin: 1.03, incMax: 1.10, capMult: 1.3 },
       Uncommon:  { incMin: 1.04, incMax: 1.12, capMult: 1.5 },
@@ -1699,6 +1837,31 @@
       Unique:    { incMin: 1.08, incMax: 1.22, capMult: 2.6 },
       Legendary: { incMin: 1.10, incMax: 1.28, capMult: 3.2 }
     };
+    // Fictional competing bidders (instead of a single generic "NPC") so the bid history reads like
+    // real collectors/shops competing against each other.
+    const AUCTION_BIDDER_NAMES = [
+      '강남_수 수족관', '광진_이모네', '울산_고래수족관', '부산_바다마을', '대구_아쿠아천국',
+      '인천_블루피쉬', '제주_남국수조', '수원_열대어클럽', '전주_한옥수족관', '춘천_호수마을',
+      '분당_피쉬앤코', '해운대_산호정원'
+    ];
+    function randomBidderName(exclude) {
+      const pool = exclude ? AUCTION_BIDDER_NAMES.filter(n => n !== exclude) : AUCTION_BIDDER_NAMES;
+      return pool[Math.floor(Math.random() * pool.length)] || AUCTION_BIDDER_NAMES[0];
+    }
+    // How much better than the tier floor this specific individual is: exact position within its
+    // tier's genotype-score range (a top-of-tier Legendary is worth more than a barely-Legendary
+    // one) plus a premium for a visibly mixed (heterozygous) color morph, which collectors prize as
+    // a unique one-off look.
+    function auctionQualityMultiplier(genotype, colorGenes, tier) {
+      const score = totalScore(genotype);
+      const within = tier.max > tier.min ? (score - tier.min) / (tier.max - tier.min) : 0;
+      const mixedColorBonus = colorGenes && colorGenes[0] !== colorGenes[1] ? 0.12 : 0;
+      return 1 + within * 0.25 + mixedColorBonus;
+    }
+    function auctionStartPrice(f) {
+      const tier = RARITY_TIERS.find(t => t.key === f.tier) || RARITY_TIERS[0];
+      return Math.round(f.value * auctionQualityMultiplier(f.genotype, f.colorGenes, tier));
+    }
     const AuctionUI = {
       bidTimeout: null, tickInterval: null,
 
@@ -1712,7 +1875,7 @@
             : eligible.map(f => `
               <div class="list-item">
                 <span class="tier-${f.tier}">${f.displayName}</span>
-                <button class="btn-glass btn-purple" onclick="AuctionUI.list('${f.id}')">출품 (시작가 ₩${f.value.toLocaleString()})</button>
+                <button class="btn-glass btn-purple" onclick="AuctionUI.list('${f.id}')">출품 (시작가 ₩${auctionStartPrice(f).toLocaleString()})</button>
               </div>`).join('');
           return;
         }
@@ -1723,12 +1886,12 @@
         c.innerHTML = `
           <div class="prediction-box">
             <b class="tier-${a.fishSnapshot.tier}">${a.fishSnapshot.name}</b> 경매 진행 중<br>
-            현재 최고가: <span style="color:var(--accent-gold)">₩${a.currentBid.toLocaleString()}</span> ${a.bidder==='npc' ? '(NPC 입찰)' : '(입찰 대기 중)'}<br>
+            현재 최고가: <span style="color:var(--accent-gold)">₩${a.currentBid.toLocaleString()}</span> ${a.bidder ? `(${a.bidder} 입찰)` : '(입찰 대기 중)'}<br>
             남은 시간: <span id="auction-timer">${mm}:${ss}</span>
           </div>
           ${a.bidder ? `<button class="btn-glass btn-gold" style="padding:12px; justify-content:center;" onclick="AuctionUI.resolve()">₩${a.currentBid.toLocaleString()}에 즉시 낙찰 수락</button>` : `<div style="text-align:center; color:var(--text-muted); font-size:12px;">아직 입찰이 없습니다. 잠시 기다려보세요...</div>`}
           <div style="max-height:80px; overflow-y:auto; font-size:12px; color:var(--text-muted);">
-            ${a.history.slice().reverse().map(h=>`NPC 입찰: ₩${h.amount.toLocaleString()}`).join('<br>') || '입찰 기록 없음'}
+            ${a.history.slice().reverse().map(h=>`${h.bidder} 입찰: ₩${h.amount.toLocaleString()}`).join('<br>') || '입찰 기록 없음'}
           </div>
         `;
         this._ensureTimer();
@@ -1739,11 +1902,16 @@
         if (idx===-1) return;
         const f = State.fishes[idx];
         if (!AUCTION_ELIGIBLE_TIERS.includes(f.tier)) return;
+        const startPrice = auctionStartPrice(f);
+        const cfg = TIER_AUCTION_CONFIG[f.tier] || TIER_AUCTION_CONFIG.Common;
+        // "Collector fever": each listing rolls its own extra ceiling on top of the tier's base cap,
+        // so identical-tier auctions don't all top out at the same predictable price.
+        const capMult = cfg.capMult + Math.random() * cfg.capMult * 0.4;
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
           fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName, colorGenes: f.colorGenes, personality: f.personality },
-          startPrice: f.value, currentBid: f.value, bidder: null,
+          startPrice, currentBid: startPrice, bidder: null, capMult,
           history: [], endsAt: Date.now() + 60000
         };
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -1755,7 +1923,8 @@
         const scheduleNext = () => {
           if (!State.auction) return;
           const cfg = TIER_AUCTION_CONFIG[State.auction.fishSnapshot.tier] || TIER_AUCTION_CONFIG.Common;
-          const cap = Math.round(State.auction.startPrice * cfg.capMult);
+          const capMult = State.auction.capMult || cfg.capMult;
+          const cap = Math.round(State.auction.startPrice * capMult);
           if (State.auction.currentBid >= cap) return; // fully bid up for this tier, stop scheduling
           const delay = 4000 + Math.random()*4000;
           this.bidTimeout = setTimeout(() => {
@@ -1764,8 +1933,8 @@
             if (Math.random() < 0.7) {
               const inc = cfg.incMin + Math.random()*(cfg.incMax - cfg.incMin);
               State.auction.currentBid = Math.min(cap, Math.round(State.auction.currentBid * inc));
-              State.auction.bidder = 'npc';
-              State.auction.history.push({ bidder: 'npc', amount: State.auction.currentBid, t: Date.now() });
+              State.auction.bidder = randomBidderName(State.auction.bidder);
+              State.auction.history.push({ bidder: State.auction.bidder, amount: State.auction.currentBid, t: Date.now() });
               if (State.auction.endsAt - Date.now() < 10000) State.auction.endsAt = Date.now() + 10000;
               Sound.coin();
               AquaApp.saveLocal();
@@ -1797,10 +1966,10 @@
         if (!a) return;
         clearTimeout(this.bidTimeout); this.bidTimeout = null;
         if (this.tickInterval) { clearInterval(this.tickInterval); this.tickInterval = null; }
-        if (a.bidder === 'npc') {
+        if (a.bidder) {
           State.money += a.currentBid;
           Sound.coin();
-          alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
+          alert(`🎉 경매 낙찰! ${a.bidder}에게 ₩${a.currentBid.toLocaleString()}에 판매되었습니다!`);
         } else {
           State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype, colorGenes: a.fishSnapshot.colorGenes, personality: a.fishSnapshot.personality }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
@@ -1813,6 +1982,10 @@
       resume() {
         if (!State.auction) return;
         if (typeof State.auction.startPrice !== 'number') State.auction.startPrice = State.auction.currentBid; // older saves
+        if (typeof State.auction.capMult !== 'number') {
+          const cfg = TIER_AUCTION_CONFIG[State.auction.fishSnapshot.tier] || TIER_AUCTION_CONFIG.Common;
+          State.auction.capMult = cfg.capMult;
+        }
         if (Date.now() >= State.auction.endsAt) {
           this.resolve();
         } else {
@@ -1823,14 +1996,117 @@
     };
 
     /* ==========================================================
+       7b. MULTIPLE TANKS
+       ========================================================== */
+    // Only one tank is ever "live" at a time (State.fishes/decorations/water/etc. always describe
+    // it); every other tank sits frozen as a plain-data snapshot in State.tanks until the player
+    // switches to it, at which point the current live tank is snapshotted back and the target
+    // tank's snapshot is reconstructed into live Fish/decoration objects. Auctions are a shared
+    // marketplace, not per-tank, so State.auction is untouched by switching.
+    const TankManager = {
+      syncActiveSnapshot() {
+        const tank = State.tanks[State.activeTankIndex];
+        if (!tank) return;
+        tank.tankCapacity = State.tankCapacity;
+        tank.fishes = State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorGenes: f.colorGenes, personality: f.personality }));
+        tank.decorations = State.decorations;
+        tank.floorStyle = State.floorStyle;
+        tank.bgStyle = State.bgStyle;
+        tank.water = State.water;
+      },
+      teardownLive() {
+        State.fishes.forEach(f => f.destroy());
+        State.fishes = [];
+        State.foods.forEach(f => { scene.remove(f.mesh); disposeObject3D(f.mesh); });
+        State.foods = [];
+        State.waste.forEach(w => { scene.remove(w.mesh); disposeObject3D(w.mesh); });
+        State.waste = [];
+        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) { scene.remove(m); disposeObject3D(m); } });
+      },
+      loadSnapshotIntoLive(tank) {
+        State.tankCapacity = tank.tankCapacity || 8;
+        State.decorations = tank.decorations || [];
+        State.floorStyle = tank.floorStyle || 'default';
+        State.bgStyle = tank.bgStyle || 'default';
+        State.water = tank.water || { quality: 100, ph: 7.0 };
+        (tank.fishes || []).forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
+        applyFloorStyle(State.floorStyle);
+        applyBgStyle(State.bgStyle);
+        State.decorations.forEach(d => Builder.spawn(d));
+      },
+      switchTo(index) {
+        if (index === State.activeTankIndex || index < 0 || index >= State.tanks.length) return;
+        this.syncActiveSnapshot();
+        this.teardownLive();
+        State.activeTankIndex = index;
+        this.loadSnapshotIntoLive(State.tanks[index]);
+        AquaApp.updateUI();
+        AquaApp.saveLocal();
+        this.renderSwitcher();
+        document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+        showToast(`🏠 ${State.tanks[index].name}(으)로 이동했습니다.`);
+      },
+      // Each additional tank costs progressively more (₩40,000 for the 2nd, ₩55,000 for the 3rd, ...).
+      nextTankCost() { return 25000 + State.tanks.length * 15000; },
+      buyNewTank() {
+        const cost = this.nextTankCost();
+        if (State.money < cost) { alert(`새 어항 구매 비용(₩${cost.toLocaleString()})이 부족합니다.`); return; }
+        Sound.init(); Sound.coin();
+        State.money -= cost;
+        const tank = buildTankSnapshot({
+          name: `${State.tanks.length + 1}번 어항`,
+          fishes: [
+            { speciesKey: 'GUPPY', birthTime: Date.now() },
+            { speciesKey: 'GUPPY', birthTime: Date.now() }
+          ]
+        });
+        State.tanks.push(tank);
+        AquaApp.updateUI(); AquaApp.saveLocal();
+        this.renderSwitcher();
+        showToast(`🐠 ${tank.name} 구매 완료! 상단 어항 메뉴에서 전환할 수 있어요.`);
+      },
+      renderSwitcher() {
+        const label = document.getElementById('tank-switch-label');
+        const activeTank = State.tanks[State.activeTankIndex];
+        if (label) label.innerText = activeTank ? activeTank.name : '1번 어항';
+        const list = document.getElementById('tank-switch-list');
+        if (list) {
+          list.innerHTML = State.tanks.map((t, i) => `
+            <div class="list-item" style="cursor:pointer;" onclick="TankManager.switchTo(${i})">
+              <span>${t.name}${i === State.activeTankIndex ? ' <span style="color:var(--accent-cyan)">(현재)</span>' : ''}</span>
+              <span class="cond-text">🐟 ${i === State.activeTankIndex ? State.fishes.length : (t.fishes||[]).length} / ${t.tankCapacity || 8}</span>
+            </div>
+          `).join('');
+        }
+        const costEl = document.getElementById('tank-buy-cost');
+        if (costEl) costEl.innerText = this.nextTankCost().toLocaleString();
+      },
+      open() {
+        this.syncActiveSnapshot(); // so the currently-active tank's row shows an accurate count too
+        this.renderSwitcher();
+        AquaApp.openModal('tank-modal');
+      }
+    };
+
+    /* ==========================================================
        8. MAIN APP CONTROLLER (Save/Load/UI)
        ========================================================== */
     const AquaApp = {
       init() {
         initThree(); this.loadLocal();
+        if (!State.tanks || State.tanks.length === 0) {
+          // Fresh game, or a save from before multi-tank support: wrap whatever loadLocal just put
+          // into the live State fields as this player's first tank.
+          State.tanks = [buildTankSnapshot({
+            id: 'tank1', name: '1번 어항', tankCapacity: State.tankCapacity, decorations: State.decorations,
+            floorStyle: State.floorStyle, bgStyle: State.bgStyle, water: State.water
+          })];
+          State.activeTankIndex = 0;
+        }
         if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() })); }
         State.decorations.forEach(d => Builder.spawn(d));
         this.updateUI();
+        TankManager.renderSwitcher();
         AuctionUI.resume();
         NaturalBreeding.start();
         WaterSystem.start();
@@ -1972,21 +2248,29 @@
       renderShopList() {
         const list = document.getElementById('shop-list');
         const items = SHOP_DB.filter(i => (i.category || 'deco') === this._shopCategory);
-        list.innerHTML = items.map(i => `
+        list.innerHTML = items.map(i => {
+          const price = i.type === 'new-tank' ? TankManager.nextTankCost() : i.price;
+          return `
           <div class="list-item">
             <div>
               <b>${i.name}</b>
               <div class="cond-text">${i.effectDesc || ''}</div>
             </div>
-            <button class="btn-glass btn-green" onclick="AquaApp.buyShop('${i.id}')">₩${i.price.toLocaleString()}</button>
+            <button class="btn-glass btn-green" onclick="AquaApp.buyShop('${i.id}')">₩${price.toLocaleString()}</button>
           </div>
-        `).join('');
+        `;
+        }).join('');
       },
       closeModal(id) { document.getElementById(id).classList.remove('active'); },
       closeOutside(e, id) { if(e.target.id === id) this.closeModal(id); },
 
       buyShop(id) {
         const item = SHOP_DB.find(i=>i.id===id);
+        if (item.type === 'new-tank') {
+          TankManager.buyNewTank();
+          this.renderShopList();
+          return;
+        }
         if(State.money < item.price) return alert("잔액 부족!");
         if(item.type==='up') {
           Sound.init(); Sound.coin(); State.money-=item.price; State.tankCapacity+=5;
@@ -2045,69 +2329,91 @@
         WaterUI.updateBadge();
       },
 
-      /* Robust Save/Load with v4 -> v5 -> v6 migration */
+      /* Robust Save/Load with v4 -> v5 -> v6 -> v7 (multi-tank) migration */
       saveLocal() {
+        TankManager.syncActiveSnapshot();
         const data = {
-          version: 6,
-          money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName, sick: f.sick, sickTimer: f.sickTimer, colorGenes: f.colorGenes, personality: f.personality })),
-          decorations: State.decorations,
-          floorStyle: State.floorStyle,
-          bgStyle: State.bgStyle,
-          auction: State.auction,
-          water: State.water
+          version: 7,
+          money: State.money,
+          tanks: State.tanks,
+          activeTankIndex: State.activeTankIndex,
+          auction: State.auction
         };
         localStorage.setItem(SAVE_KEY, JSON.stringify(data));
       },
       loadLocal() {
-        let data = null;
+        let data = null, legacySingleTank = false;
         const raw = localStorage.getItem(SAVE_KEY);
         if (raw) {
           try { data = JSON.parse(raw); } catch(e) { console.error("Save load failed", e); }
         } else {
-          const v5raw = localStorage.getItem(LEGACY_SAVE_KEY_V5);
-          if (v5raw) {
-            try {
-              const d = JSON.parse(v5raw);
-              data = {
-                money: d.money, tankCapacity: d.tankCapacity,
-                fishes: (d.fishes||[]).map(fd => {
-                  const legacy = LEGACY_GENE_TO_SPECIES[fd.geneKey] || LEGACY_GENE_TO_SPECIES.BLUE;
-                  return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: fd.hunger, purchaseCost: fd.purchaseCost, id: fd.id, birthTime: fd.birthTime, customName: fd.customName };
-                }),
-                decorations: d.decorations || [],
-                floorStyle: d.floorStyle || 'default', bgStyle: d.bgStyle || 'default',
-                auction: null // v5 auctions were geneKey-based and don't map cleanly; drop any in-flight listing
-              };
-            } catch(e) { console.error("v5 save load failed", e); }
+          const v6raw = localStorage.getItem(LEGACY_SAVE_KEY_V6);
+          if (v6raw) {
+            try { data = JSON.parse(v6raw); legacySingleTank = true; } catch(e) { console.error("v6 save load failed", e); }
           } else {
-            const v4raw = localStorage.getItem(LEGACY_SAVE_KEY_V4);
-            if (v4raw) {
+            const v5raw = localStorage.getItem(LEGACY_SAVE_KEY_V5);
+            if (v5raw) {
               try {
-                const d = JSON.parse(v4raw);
+                const d = JSON.parse(v5raw);
                 data = {
                   money: d.money, tankCapacity: d.tankCapacity,
-                  fishes: (d.fishes||[]).map(gene => {
-                    const legacy = LEGACY_GENE_TO_SPECIES[gene] || LEGACY_GENE_TO_SPECIES.BLUE;
-                    return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: 100 };
+                  fishes: (d.fishes||[]).map(fd => {
+                    const legacy = LEGACY_GENE_TO_SPECIES[fd.geneKey] || LEGACY_GENE_TO_SPECIES.BLUE;
+                    return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: fd.hunger, purchaseCost: fd.purchaseCost, id: fd.id, birthTime: fd.birthTime, customName: fd.customName };
                   }),
-                  decorations: (d.decorations||[]).map(dec => ({ ...dec, id: Math.random().toString(36).substr(2,9), surface: 'floor', rotationY: 0 })),
-                  floorStyle: 'default', bgStyle: 'default', auction: null
+                  decorations: d.decorations || [],
+                  floorStyle: d.floorStyle || 'default', bgStyle: d.bgStyle || 'default',
+                  auction: null // v5 auctions were geneKey-based and don't map cleanly; drop any in-flight listing
                 };
-              } catch(e) { console.error("v4 save load failed", e); }
+                legacySingleTank = true;
+              } catch(e) { console.error("v5 save load failed", e); }
+            } else {
+              const v4raw = localStorage.getItem(LEGACY_SAVE_KEY_V4);
+              if (v4raw) {
+                try {
+                  const d = JSON.parse(v4raw);
+                  data = {
+                    money: d.money, tankCapacity: d.tankCapacity,
+                    fishes: (d.fishes||[]).map(gene => {
+                      const legacy = LEGACY_GENE_TO_SPECIES[gene] || LEGACY_GENE_TO_SPECIES.BLUE;
+                      return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: 100 };
+                    }),
+                    decorations: (d.decorations||[]).map(dec => ({ ...dec, id: Math.random().toString(36).substr(2,9), surface: 'floor', rotationY: 0 })),
+                    floorStyle: 'default', bgStyle: 'default', auction: null
+                  };
+                  legacySingleTank = true;
+                } catch(e) { console.error("v4 save load failed", e); }
+              }
             }
           }
         }
         if (!data) return;
         State.money = data.money || 35000;
-        State.tankCapacity = data.tankCapacity || 8;
-        State.decorations = data.decorations || [];
-        State.floorStyle = data.floorStyle || 'default';
-        State.bgStyle = data.bgStyle || 'default';
-        State.auction = data.auction || null;
-        State.water = data.water || { quality: 100, ph: 7.0 };
-        if (data.fishes && data.fishes.length>0) {
-          data.fishes.forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
+        if (!legacySingleTank && Array.isArray(data.tanks) && data.tanks.length > 0) {
+          // v7 multi-tank format: only the active tank's data gets loaded live; the rest stay as
+          // plain-data snapshots in State.tanks until the player switches to them.
+          State.tanks = data.tanks;
+          State.activeTankIndex = Math.max(0, Math.min(data.activeTankIndex || 0, State.tanks.length - 1));
+          State.auction = data.auction || null;
+          const active = State.tanks[State.activeTankIndex];
+          State.tankCapacity = active.tankCapacity || 8;
+          State.decorations = active.decorations || [];
+          State.floorStyle = active.floorStyle || 'default';
+          State.bgStyle = active.bgStyle || 'default';
+          State.water = active.water || { quality: 100, ph: 7.0 };
+          (active.fishes || []).forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
+        } else {
+          // Pre-v7 (or legacy v4/v5/v6) single-tank save. Loaded directly as today; AquaApp.init()
+          // wraps this into a single-entry State.tanks right after calling loadLocal().
+          State.tankCapacity = data.tankCapacity || 8;
+          State.decorations = data.decorations || [];
+          State.floorStyle = data.floorStyle || 'default';
+          State.bgStyle = data.bgStyle || 'default';
+          State.auction = data.auction || null;
+          State.water = data.water || { quality: 100, ph: 7.0 };
+          if (data.fishes && data.fishes.length>0) {
+            data.fishes.forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
+          }
         }
       },
 
@@ -2136,16 +2442,20 @@
         State.bgStyle = 'default';
         State.auction = null;
         State.water = { quality: 100, ph: 7.0 };
+        State.tanks = [buildTankSnapshot({ id: 'tank1', name: '1번 어항' })];
+        State.activeTankIndex = 0;
 
         applyFloorStyle(State.floorStyle);
         applyBgStyle(State.bgStyle);
 
         localStorage.removeItem(SAVE_KEY);
+        localStorage.removeItem(LEGACY_SAVE_KEY_V6);
         localStorage.removeItem(LEGACY_SAVE_KEY_V5);
         localStorage.removeItem(LEGACY_SAVE_KEY_V4);
 
         State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() }));
         this.updateUI();
+        TankManager.renderSwitcher();
         this.saveLocal();
         NaturalBreeding.start();
         WaterSystem.start();
