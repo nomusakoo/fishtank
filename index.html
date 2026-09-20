@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Jua&display=swap" rel="stylesheet">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <style>
     :root {
       --bg-glass: rgba(15, 23, 42, 0.85); --border-glass: rgba(255, 255, 255, 0.15);
@@ -555,6 +556,31 @@
       DISCUS: { aggression: 3, size: 3 }
     };
 
+    // --- Real 3D model support (for production use) ---
+    // No model files ship with this project (sourcing properly-licensed fish models is up to
+    // whoever deploys this). Drop a .glb per species here (e.g. url: 'models/guppy.glb') and it
+    // will load automatically in place of the procedural placeholder body, with graceful fallback
+    // to the procedural shape if the url is empty or the file fails to load.
+    const MODEL_CONFIG = {
+      GUPPY:  { url: '', scale: 1, rotationY: 0 },
+      MOLLY:  { url: '', scale: 1, rotationY: 0 },
+      NEON:   { url: '', scale: 1, rotationY: 0 },
+      CORY:   { url: '', scale: 1, rotationY: 0 },
+      BETTA:  { url: '', scale: 1, rotationY: 0 },
+      ANGEL:  { url: '', scale: 1, rotationY: 0 },
+      DISCUS: { url: '', scale: 1, rotationY: 0 }
+    };
+    const _modelCache = new Map(); // url -> Promise<THREE.Object3D> (the loaded template, cloned per fish)
+    function loadFishModel(url) {
+      if (!_modelCache.has(url)) {
+        _modelCache.set(url, new Promise((resolve, reject) => {
+          if (!window.THREE || !THREE.GLTFLoader) { reject(new Error('GLTFLoader unavailable')); return; }
+          new THREE.GLTFLoader().load(url, gltf => resolve(gltf), undefined, reject);
+        }));
+      }
+      return _modelCache.get(url);
+    }
+
     // --- Mendelian genetics: two independent loci (색상 C/c, 무늬 M/m), dominant/recessive ---
     function randomAllele(dominant, recessive, recessiveChance) {
       return Math.random() < recessiveChance ? recessive : dominant;
@@ -645,12 +671,14 @@
 
         const [bx, by, bz] = sp.bodyScale;
         const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(bx, by, bz), bodyMat);
+        this._proceduralBody = body;
         this.group.add(body);
 
         if (sp.dorsal) {
           const dorsal = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 3), finMat);
           dorsal.rotation.x = Math.PI/2;
           dorsal.position.set(0, 0.3*by*0.95, 0.05);
+          this._dorsal = dorsal;
           this.group.add(dorsal);
         }
 
@@ -694,10 +722,49 @@
 
         this.group.userData.fishId = this.id;
         scene.add(this.group);
+
+        this._tryLoadModel(species);
       }
 
       get displayName() { return this.customName || this.name; }
       get isAdult() { return (Date.now() - this.birthTime) >= MATURITY_MS; }
+
+      // Swaps the procedural placeholder body for a real 3D model, if one is configured for this
+      // species and loads successfully. Silently keeps the procedural body otherwise (offline,
+      // missing file, bad url, etc.) so a broken model config never breaks the fish.
+      _tryLoadModel(species) {
+        const cfg = MODEL_CONFIG[this.speciesKey];
+        if (!cfg || !cfg.url) return;
+        loadFishModel(cfg.url).then(gltf => {
+          const model = gltf.scene.clone(true);
+          model.scale.setScalar(cfg.scale || 1);
+          model.rotation.y = cfg.rotationY || 0;
+          model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+
+          // Remove the procedural placeholder parts (body/fins/tail), keep the group itself so
+          // position/velocity/quaternion logic and the hunger/sick sprites are unaffected.
+          [this._proceduralBody, this._dorsal, this.tailGroup, this.finL, this.finR].forEach(o => {
+            if (o) this.group.remove(o);
+          });
+          this.tailGroup = null; this.finL = null; this.finR = null;
+
+          this.group.add(model);
+          this.modelRoot = model;
+          this.usingModel = true;
+
+          if (gltf.animations && gltf.animations.length > 0) {
+            this.mixer = new THREE.AnimationMixer(model);
+            this.mixer.clipAction(gltf.animations[0]).play();
+          }
+
+          // Re-anchor the hunger/sick sprites above the model's actual height instead of the
+          // procedural body's estimated height.
+          const box = new THREE.Box3().setFromObject(model);
+          const topY = box.max.y + 0.15;
+          this.hungerSprite.position.y = topY;
+          this.sickSprite.position.y = topY;
+        }).catch(() => { /* keep the procedural body */ });
+      }
 
       _updateHungerSprite() {
         const bucket = Math.max(0, Math.min(9, Math.floor(this.hunger/10)));
@@ -809,11 +876,16 @@
 
         const speed = this.vel.length();
         this._animT += 0.016;
-        const swishSpeed = 6 + speed*40;
-        this.tailGroup.rotation.y = Math.sin(this._animT*swishSpeed + this.phase) * 0.35;
-        const finAmp = speed < 0.008 ? 0.32 : 0.12;
-        this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
-        this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+        if (this.mixer) {
+          // A real model with a baked swim clip drives its own animation, sped up a little when bursting
+          this.mixer.update(0.016 * (1 + speed*10));
+        } else if (this.tailGroup) {
+          const swishSpeed = 6 + speed*40;
+          this.tailGroup.rotation.y = Math.sin(this._animT*swishSpeed + this.phase) * 0.35;
+          const finAmp = speed < 0.008 ? 0.32 : 0.12;
+          this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
+          this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+        }
       }
 
       startle(point) {
