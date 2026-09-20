@@ -91,7 +91,11 @@
     #deco-edit-banner button { margin-top: 6px; }
 
     /* Utility Colors */
-    .tier-Common { color: #cbd5e1; } .tier-Rare { color: #38bdf8; } .tier-Epic { color: #d8b4fe; }
+    .tier-Common { color: #cbd5e1; }
+    .tier-Uncommon { color: #4ade80; font-weight: 600; }
+    .tier-Rare { color: #38bdf8; font-weight: 600; }
+    .tier-Epic { color: #d8b4fe; font-weight: 700; }
+    .tier-Unique { color: #fb923c; font-weight: 700; }
     .tier-Legendary {
       font-weight: bold; background: linear-gradient(90deg, #fde047, #fbbf24, #f59e0b, #fde047);
       background-size: 250% auto; -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -240,7 +244,14 @@
         <h3>📋 물고기 도감</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('fish-list-modal')">✕</button>
       </div>
-      <div class="modal-body" id="fish-list-content"></div>
+      <div class="modal-body">
+        <div class="tab-header">
+          <button class="tab-btn active" id="tab-btn-owned" onclick="FishListUI.switchTab('owned')">보유 물고기</button>
+          <button class="tab-btn" id="tab-btn-tiers" onclick="FishListUI.switchTab('tiers')">등급표</button>
+        </div>
+        <div class="tab-content active" id="fish-list-content"></div>
+        <div class="tab-content" id="tier-table-content"></div>
+      </div>
     </div>
   </div>
 
@@ -296,11 +307,11 @@
     // real species + Mendelian genotype. This maps old geneKeys to an equivalent species/genotype
     // so existing saves keep roughly the same rarity instead of breaking on load.
     const LEGACY_GENE_TO_SPECIES = {
-      BLUE:   { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
-      RED:    { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
-      GREEN:  { speciesKey: 'NEON',  genotype: { color: ['C','C'], pattern: ['m','m'] } },
-      GOLD:   { speciesKey: 'ANGEL', genotype: { color: ['c','c'], pattern: ['M','M'] } },
-      MUTANT: { speciesKey: 'BETTA', genotype: { color: ['c','c'], pattern: ['m','m'] } }
+      BLUE:   { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'], fin: ['F','F'] } },
+      RED:    { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'], fin: ['F','F'] } },
+      GREEN:  { speciesKey: 'NEON',  genotype: { color: ['C','C'], pattern: ['m','m'], fin: ['F','F'] } },
+      GOLD:   { speciesKey: 'ANGEL', genotype: { color: ['c','c'], pattern: ['M','M'], fin: ['F','F'] } },
+      MUTANT: { speciesKey: 'BETTA', genotype: { color: ['c','c'], pattern: ['m','m'], fin: ['f','f'] } }
     };
 
     const State = {
@@ -581,35 +592,78 @@
       return _modelCache.get(url);
     }
 
-    // --- Mendelian genetics: two independent loci (색상 C/c, 무늬 M/m), dominant/recessive ---
-    function randomAllele(dominant, recessive, recessiveChance) {
-      return Math.random() < recessiveChance ? recessive : dominant;
+    // --- Mendelian genetics: three independent loci with incomplete dominance ---
+    // 색상(C/c), 무늬(M/m), 지느러미(F/f). Heterozygotes show their own blended phenotype instead of
+    // the recessive allele being fully masked (real incomplete-dominance, like red x white -> pink),
+    // which gives each locus 3 possible looks instead of 2 and makes rarity much more fine-grained.
+    const GENE_LOCI = [
+      { key: 'color',   dominant: 'C', recessive: 'c' },
+      { key: 'pattern', dominant: 'M', recessive: 'm' },
+      { key: 'fin',     dominant: 'F', recessive: 'f' }
+    ];
+    // ~12% recessive allele frequency per locus keeps the tier distribution below monotonically
+    // decreasing (each tier meaningfully rarer than the last) without any tier being a pure lottery.
+    const RECESSIVE_ALLELE_CHANCE = 0.12;
+    function randomAllele(dominant, recessive) {
+      return Math.random() < RECESSIVE_ALLELE_CHANCE ? recessive : dominant;
     }
     function randomGenotype() {
-      return {
-        color: [randomAllele('C', 'c', 0.22), randomAllele('C', 'c', 0.22)],
-        pattern: [randomAllele('M', 'm', 0.22), randomAllele('M', 'm', 0.22)]
-      };
+      const g = {};
+      GENE_LOCI.forEach(locus => { g[locus.key] = [randomAllele(locus.dominant, locus.recessive), randomAllele(locus.dominant, locus.recessive)]; });
+      return g;
     }
-    function phenotype(genotype) {
-      return {
-        colorRecessive: genotype.color[0] === 'c' && genotype.color[1] === 'c',
-        patternRecessive: genotype.pattern[0] === 'm' && genotype.pattern[1] === 'm'
-      };
+    // 0 = homozygous dominant, 1 = heterozygous (blended), 2 = homozygous recessive
+    function locusScore(pair) { return pair.filter(a => a === a.toLowerCase()).length; }
+    function totalScore(genotype) {
+      return GENE_LOCI.reduce((sum, locus) => sum + locusScore(genotype[locus.key] || [locus.dominant, locus.dominant]), 0);
+    }
+    const RARITY_TIERS = [
+      { key: 'Common',    min: 0, max: 0, mult: 1 },
+      { key: 'Uncommon',  min: 1, max: 1, mult: 2 },
+      { key: 'Rare',      min: 2, max: 2, mult: 5 },
+      { key: 'Epic',      min: 3, max: 3, mult: 12 },
+      { key: 'Unique',    min: 4, max: 4, mult: 30 },
+      { key: 'Legendary', min: 5, max: 6, mult: 80 }
+    ];
+    // Exact tier probabilities for a randomly generated fish, computed by convolving each locus's
+    // score distribution (0/1/2) across all loci — used only for the 등급표 reference display.
+    function computeTierProbabilities() {
+      const p = RECESSIVE_ALLELE_CHANCE;
+      const perLocus = [(1-p)*(1-p), 2*p*(1-p), p*p];
+      let dist = [1];
+      GENE_LOCI.forEach(() => {
+        const next = new Array(dist.length + 2).fill(0);
+        dist.forEach((prob, s) => perLocus.forEach((lp, ls) => { next[s+ls] += prob*lp; }));
+        dist = next;
+      });
+      const tierProbs = {};
+      RARITY_TIERS.forEach(t => {
+        let sum = 0;
+        for (let s = t.min; s <= t.max && s < dist.length; s++) sum += dist[s] || 0;
+        tierProbs[t.key] = sum;
+      });
+      return tierProbs;
+    }
+    function formatTierPercent(p) {
+      const pct = p*100;
+      if (pct >= 1) return pct.toFixed(1) + '%';
+      if (pct >= 0.01) return pct.toFixed(2) + '%';
+      return pct.toFixed(4) + '%';
     }
     function deriveRarity(genotype) {
-      const { colorRecessive, patternRecessive } = phenotype(genotype);
-      if (colorRecessive && patternRecessive) return { key: 'Legendary', mult: 25 };
-      if (colorRecessive) return { key: 'Epic', mult: 8 };
-      if (patternRecessive) return { key: 'Rare', mult: 3 };
-      return { key: 'Common', mult: 1 };
+      const score = totalScore(genotype);
+      return RARITY_TIERS.find(t => score >= t.min && score <= t.max) || RARITY_TIERS[RARITY_TIERS.length-1];
     }
     function traitLabel(genotype) {
-      const { colorRecessive, patternRecessive } = phenotype(genotype);
-      if (colorRecessive && patternRecessive) return '파스텔 메탈릭';
-      if (colorRecessive) return '파스텔';
-      if (patternRecessive) return '메탈릭';
-      return '일반색';
+      const colorWords = ['', '파스텔믹스', '파스텔'];
+      const patternWords = ['', '은은한 광택', '메탈릭'];
+      const finWords = ['', '롱핀', '베일테일'];
+      const parts = [
+        colorWords[locusScore(genotype.color)],
+        patternWords[locusScore(genotype.pattern)],
+        finWords[locusScore(genotype.fin || ['F','F'])]
+      ].filter(Boolean);
+      return parts.length ? parts.join(' ') : '일반색';
     }
     function orderAlleles(a, b) { return (a === a.toUpperCase()) ? a + b : b + a; }
     function punnett(pair1, pair2) {
@@ -622,10 +676,16 @@
       return Math.random() < 0.03 ? (allele === dominant ? recessive : dominant) : allele;
     }
     function mendelCross(g1, g2) {
-      return {
-        color: [maybeMutateAllele(meiosis(g1.color), 'C', 'c'), maybeMutateAllele(meiosis(g2.color), 'C', 'c')],
-        pattern: [maybeMutateAllele(meiosis(g1.pattern), 'M', 'm'), maybeMutateAllele(meiosis(g2.pattern), 'M', 'm')]
-      };
+      const child = {};
+      GENE_LOCI.forEach(locus => {
+        const p1 = g1[locus.key] || [locus.dominant, locus.dominant];
+        const p2 = g2[locus.key] || [locus.dominant, locus.dominant];
+        child[locus.key] = [
+          maybeMutateAllele(meiosis(p1), locus.dominant, locus.recessive),
+          maybeMutateAllele(meiosis(p2), locus.dominant, locus.recessive)
+        ];
+      });
+      return child;
     }
     function lightenColor(hex, amt) {
       const c = new THREE.Color(hex);
@@ -641,6 +701,7 @@
         const species = FISH_SPECIES[this.speciesKey];
         const sp = SPECIES[species.archetype] || SPECIES.GUPPY;
         this.genotype = restore.genotype || randomGenotype();
+        if (!this.genotype.fin) this.genotype.fin = ['F', 'F']; // saves from before the fin locus existed
         const rarity = deriveRarity(this.genotype);
         this.tier = rarity.key;
         this.value = Math.round(species.basePrice * rarity.mult);
@@ -660,14 +721,18 @@
         this.phase = Math.random()*Math.PI*2;
 
         this.group = new THREE.Group();
-        const { colorRecessive, patternRecessive } = phenotype(this.genotype);
-        const hex = colorRecessive ? lightenColor(species.hex, 0.5) : species.hex;
+        const colorScore = locusScore(this.genotype.color);
+        const patternScore = locusScore(this.genotype.pattern);
+        const finScore = locusScore(this.genotype.fin);
+        const hex = colorScore > 0 ? lightenColor(species.hex, colorScore * 0.3) : species.hex;
+        const metalness = [0.2, 0.55, 0.9][patternScore];
+        const emissiveIntensity = [0, 0.2, 0.4][patternScore];
         const bodyMat = new THREE.MeshStandardMaterial({
-          color: hex, metalness: patternRecessive ? 0.9 : 0.2,
-          emissive: patternRecessive ? hex : 0x000000, emissiveIntensity: patternRecessive ? 0.4 : 0.3
+          color: hex, metalness, emissive: patternScore > 0 ? hex : 0x000000, emissiveIntensity
         });
         this.bodyMat = bodyMat;
         const finMat = new THREE.MeshStandardMaterial({ color: hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.6 });
+        const finLengthMult = [1, 1.4, 2.0][finScore]; // longer/veil-tail fins for the recessive fin locus
 
         const [bx, by, bz] = sp.bodyScale;
         const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(bx, by, bz), bodyMat);
@@ -682,11 +747,12 @@
           this.group.add(dorsal);
         }
 
+        const finLength = sp.finLength * finLengthMult;
         this.tailGroup = new THREE.Group();
         sp.tailAngles.forEach(a => {
-          const seg = new THREE.Mesh(new THREE.PlaneGeometry(sp.finHeight, sp.finLength), finMat);
+          const seg = new THREE.Mesh(new THREE.PlaneGeometry(sp.finHeight, finLength), finMat);
           seg.rotation.x = Math.PI/2;
-          seg.position.z = -sp.finLength/2;
+          seg.position.z = -finLength/2;
           seg.rotation.y = a;
           this.tailGroup.add(seg);
         });
@@ -936,13 +1002,15 @@
 
         if(this.p1 && this.p2) {
           document.getElementById('btn-breed').disabled = false;
-          const colorP = punnett(this.p1.genotype.color, this.p2.genotype.color);
-          const patternP = punnett(this.p1.genotype.pattern, this.p2.genotype.pattern);
           const fmt = counts => Object.entries(counts).map(([geno,n]) => `${geno} ${Math.round(n/4*100)}%`).join(', ');
+          const lines = GENE_LOCI.map(locus => {
+            const p = punnett(this.p1.genotype[locus.key] || [locus.dominant,locus.dominant], this.p2.genotype[locus.key] || [locus.dominant,locus.dominant]);
+            const label = locus.key === 'color' ? '색상' : locus.key === 'pattern' ? '무늬' : '지느러미';
+            return `${label} 유전자(${locus.dominant}/${locus.recessive}): ${fmt(p)}`;
+          }).join('<br>');
           document.getElementById('breed-prediction').innerHTML = `
             <span style="color:var(--accent-cyan)">멘델 유전 리포트 (${FISH_SPECIES[this.p1.speciesKey].name})</span><br>
-            색상 유전자(C/c): ${fmt(colorP)}<br>
-            무늬 유전자(M/m): ${fmt(patternP)}<br>
+            ${lines}<br>
             <span style="color:var(--accent-gold)">대립유전자당 돌연변이 확률: 3%</span>
           `;
         }
@@ -1361,7 +1429,7 @@
       render(f) {
         const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
         document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
-        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} (${f.traitLabel})`;
+        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} · 지느러미 ${(f.genotype.fin||['F','F']).join('')} (${f.traitLabel})`;
         const elapsed = Date.now() - f.birthTime;
         const stage = f.isAdult ? '성체' : '치어';
         const remain = Math.max(0, MATURITY_MS - elapsed);
@@ -1406,6 +1474,7 @@
       },
       open() {
         this.render();
+        this.switchTab('owned');
         AquaApp.openModal('fish-list-modal');
       },
       openDetail(id) {
@@ -1414,6 +1483,23 @@
       },
       renderIfOpen() {
         if (document.getElementById('fish-list-modal').classList.contains('active')) this.render();
+      },
+      switchTab(tab) {
+        document.getElementById('tab-btn-owned').classList.toggle('active', tab === 'owned');
+        document.getElementById('tab-btn-tiers').classList.toggle('active', tab === 'tiers');
+        document.getElementById('fish-list-content').classList.toggle('active', tab === 'owned');
+        document.getElementById('tier-table-content').classList.toggle('active', tab === 'tiers');
+        if (tab === 'tiers') this.renderTierTable();
+      },
+      renderTierTable() {
+        const probs = computeTierProbabilities();
+        const c = document.getElementById('tier-table-content');
+        c.innerHTML = RARITY_TIERS.map(t => `
+          <div class="list-item">
+            <span class="tier-${t.key}" style="font-size:15px;">${t.key}</span>
+            <span class="cond-text">가격 배율 ×${t.mult} · 출현 확률 약 ${formatTierPercent(probs[t.key])}</span>
+          </div>
+        `).join('') + `<div class="cond-text" style="margin-top:8px;">확률은 무작위(구매) 기준이며, 교배 결과는 부모의 유전자에 따라 달라집니다. 우성 유전자가 많을수록 흔하고, 열성이 많을수록 희귀합니다.</div>`;
       }
     };
 
@@ -1441,7 +1527,7 @@
     /* ==========================================================
        7. AUCTION SYSTEM
        ========================================================== */
-    const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Legendary'];
+    const AUCTION_ELIGIBLE_TIERS = ['Rare', 'Epic', 'Unique', 'Legendary'];
     const AuctionUI = {
       bidTimeout: null, tickInterval: null,
 
