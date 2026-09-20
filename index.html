@@ -3,122 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AquaBreeder Tycoon - Breeding Edition</title>
+  <title>AquaBreeder Tycoon - Stable Edition</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
-      --bg-glass: rgba(15, 23, 42, 0.75);
-      --border-glass: rgba(255, 255, 255, 0.15);
-      --accent-cyan: #06b6d4; --accent-gold: #f59e0b;
-      --accent-purple: #8b5cf6; --accent-red: #ef4444; --accent-green: #10b981;
-      --text-main: #f8fafc; --text-muted: #94a3b8;
+      --bg-glass: rgba(15, 23, 42, 0.85); --border-glass: rgba(255, 255, 255, 0.15);
+      --accent-cyan: #06b6d4; --accent-gold: #f59e0b; --accent-purple: #8b5cf6;
+      --accent-red: #ef4444; --accent-green: #10b981; --text-main: #f8fafc; --text-muted: #94a3b8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; background: #050b14; color: var(--text-main); }
+    body, html { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, sans-serif; background: #050b14; color: var(--text-main); }
     #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
-    .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 16px; transition: all 0.3s ease; }
+    .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 16px; }
     .interactive { pointer-events: auto; }
 
     /* Header */
-    .header-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-    .stat-badge { background: var(--bg-glass); backdrop-filter: blur(12px); border: 1px solid var(--border-glass); border-radius: 12px; padding: 8px 16px; display: flex; gap: 10px; font-size: 14px; font-weight: 600; }
-    .stat-badge span.val { color: var(--accent-cyan); font-weight: 700; font-size: 15px; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .stat-badge { background: var(--bg-glass); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); border-radius: 12px; padding: 8px 16px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; }
+    .stat-badge span.val { color: var(--accent-cyan); font-weight: 700; }
     .badge-gold span.val { color: var(--accent-gold); }
-    .top-actions { display: flex; gap: 8px; }
 
-    button.btn-glass { background: var(--bg-glass); backdrop-filter: blur(10px); border: 1px solid var(--border-glass); color: var(--text-main); padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s; }
-    button.btn-glass:hover { background: rgba(255,255,255,0.18); transform: translateY(-1px); }
-    button.btn-primary { background: linear-gradient(135deg, #0284c7, #06b6d4); border: transparent; }
-    button.btn-gold { background: linear-gradient(135deg, #d97706, #f59e0b); border: transparent; }
-    button.btn-green { background: linear-gradient(135deg, #059669, #10b981); border: transparent; }
-    button.btn-purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); border: transparent; }
+    /* Buttons */
+    button.btn-glass { background: var(--bg-glass); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); color: white; padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s; }
+    button.btn-glass:hover:not(:disabled) { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+    button.btn-glass:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.btn-primary { background: linear-gradient(135deg, #0284c7, #06b6d4); border: none; }
+    button.btn-gold { background: linear-gradient(135deg, #d97706, #f59e0b); border: none; }
+    button.btn-green { background: linear-gradient(135deg, #059669, #10b981); border: none; }
+    button.btn-purple { background: linear-gradient(135deg, #7c3aed, #8b5cf6); border: none; }
 
-    .bottom-bar { display: flex; justify-content: center; align-items: center; gap: 12px; margin-bottom: 8px; }
-    .main-action-btn { padding: 14px 28px; font-size: 15px; border-radius: 16px; }
+    .bottom-bar { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+    .main-action-btn { padding: 12px 24px; font-size: 15px; border-radius: 14px; }
 
-    /* Modals */
-    .modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: 0.25s; }
-    .modal-overlay.active { opacity: 1; pointer-events: auto; }
-    .modal-card { background: rgba(15,23,42,0.94); border: 1px solid var(--border-glass); border-radius: 20px; width: 100%; max-width: 520px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
-    .modal-header { padding: 18px 22px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
-    .modal-header h3 { font-size: 18px; font-weight: 700; }
-    .modal-body { padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+    /* Modals (팝업) */
+    .modal-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); backdrop-filter: blur(3px); z-index: 100; display: none; align-items: center; justify-content: center; padding: 20px; }
+    .modal-overlay.active { display: flex; }
+    .modal-card { background: rgba(15,23,42,0.95); border: 1px solid var(--border-glass); border-radius: 16px; width: 100%; max-width: 500px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.8); }
+    .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h3 { font-size: 18px; font-weight: 700; margin: 0; }
+    .modal-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+
+    /* Tabs (경매장/판매 분리) */
+    .tab-header { display: flex; gap: 8px; border-bottom: 1px solid var(--border-glass); padding-bottom: 10px; margin-bottom: 10px; }
+    .tab-btn { flex: 1; padding: 10px; background: transparent; border: 1px solid var(--border-glass); color: var(--text-muted); border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+    .tab-btn.active { background: var(--accent-cyan); color: #fff; border-color: var(--accent-cyan); }
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; gap: 10px; }
+
+    /* Fish & Shop Items */
+    .list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 10px; border: 1px solid transparent; }
+    .list-item:hover { background: rgba(255,255,255,0.1); border-color: var(--border-glass); }
 
     /* Breeding UI */
-    .breeding-slots { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; }
-    .breed-slot { flex: 1; background: rgba(255,255,255,0.05); border: 1px dashed var(--border-glass); border-radius: 12px; padding: 16px; text-align: center; cursor: pointer; transition: 0.2s; }
-    .breed-slot:hover { background: rgba(255,255,255,0.1); border-color: var(--accent-cyan); }
-    .breed-slot.filled { border-style: solid; border-color: var(--accent-purple); background: rgba(139, 92, 246, 0.15); }
-    .prediction-box { background: rgba(0,0,0,0.4); border-radius: 10px; padding: 12px; font-size: 13px; line-height: 1.6; }
-    .fish-list-mini { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; display: none; }
-    .fish-list-mini.active { display: flex; }
-    .fish-item-mini { padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; font-size: 13px; cursor: pointer; display: flex; justify-content: space-between; }
-    .fish-item-mini:hover { background: rgba(255,255,255,0.15); }
+    .breed-slot-container { display: flex; justify-content: space-between; gap: 12px; text-align: center; }
+    .breed-slot { flex: 1; padding: 16px 10px; background: rgba(0,0,0,0.3); border: 1px dashed var(--border-glass); border-radius: 12px; cursor: pointer; }
+    .breed-slot:hover { border-color: var(--accent-purple); }
+    .prediction-box { background: rgba(0,0,0,0.5); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
 
-    .tier-common { color: #cbd5e1; } .tier-rare { color: #38bdf8; } .tier-epic { color: #d8b4fe; } .tier-legendary { color: #fde047; font-weight: bold; }
-
-    #build-overlay { display: none; position: absolute; top: 20%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid var(--accent-green); padding: 12px 24px; border-radius: 30px; z-index: 20; color: var(--accent-green); font-weight: 700; pointer-events: none; }
+    /* Build Mode */
+    #build-overlay { display: none; position: absolute; top: 15%; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); border: 1px solid var(--accent-green); padding: 10px 20px; border-radius: 20px; z-index: 50; color: var(--accent-green); font-weight: bold; pointer-events: none; text-align: center; }
+    
+    /* Utility Colors */
+    .tier-Common { color: #cbd5e1; } .tier-Rare { color: #38bdf8; } .tier-Epic { color: #d8b4fe; } .tier-Legendary { color: #fde047; font-weight: bold; }
   </style>
 </head>
 <body>
+
   <canvas id="webgl-canvas"></canvas>
 
   <div class="ui-layer" id="ui-layer">
     <header class="header-bar interactive">
-      <div style="display: flex; gap: 8px;">
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <div class="stat-badge badge-gold"><span>자산:</span><span class="val" id="stat-money">₩ 25,000</span></div>
-        <div class="stat-badge"><span>수용량:</span><span class="val" id="stat-fish-count">0 / 8</span></div>
+        <div class="stat-badge"><span>어항:</span><span class="val" id="stat-fish-count">0 / 8</span></div>
       </div>
-      <div class="top-actions">
-        <button class="btn-glass btn-gold" onclick="AquaApp.openModal('auction-modal')">🏛️ 경매장 (판매)</button>
-      </div>
+      <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 무역소 (판매/경매)</button>
     </header>
 
-    <footer class="bottom-bar interactive">
+    <footer class="bottom-bar interactive" id="bottom-bar">
       <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🦐 밥 주기</button>
-      <button class="btn-glass main-action-btn" onclick="AquaApp.buyStarterFish()">➕ 기본 치어 분양 (₩5,000)</button>
+      <button class="btn-glass main-action-btn" onclick="AquaApp.buyStarterFish()">➕ 치어 구매 (₩5,000)</button>
       <button class="btn-glass btn-purple main-action-btn" onclick="BreedingUI.open()">🧪 부화장 (교배)</button>
-      <button class="btn-glass btn-green main-action-btn" onclick="AquaApp.openModal('shop-modal')">🛒 상점 (인테리어)</button>
+      <button class="btn-glass btn-green main-action-btn" onclick="AquaApp.openShopModal()">🛒 인테리어 상점</button>
     </footer>
   </div>
 
-  <div id="build-overlay">마우스를 움직여 위치를 고르고<br>클릭하여 배치하세요 (우클릭 취소)</div>
+  <div id="build-overlay">원하는 바닥을 클릭해 설치하세요.<br>(우클릭: 설치 취소)</div>
+
+  <!-- TRADE MODAL (판매 / 경매 탭) -->
+  <div class="modal-overlay interactive" id="trade-modal" onclick="AquaApp.closeOutside(event, 'trade-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>⚖️ 수산 무역소</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('trade-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-header">
+          <button class="tab-btn active" id="tab-btn-sell" onclick="AquaApp.switchTab('sell')">즉시 판매</button>
+          <button class="tab-btn" id="tab-btn-auction" onclick="AquaApp.switchTab('auction')">실시간 경매</button>
+        </div>
+        
+        <!-- 즉시 판매 탭 -->
+        <div class="tab-content active" id="tab-sell-content"></div>
+        
+        <!-- 경매장 탭 -->
+        <div class="tab-content" id="tab-auction-content">
+          <div style="text-align:center; padding:20px; color:var(--accent-gold);">
+             NPC 경매 시스템 접속 중...<br><span style="font-size:12px; color:var(--text-muted);">(희귀 등급 이상만 출품 가능 - 업데이트 예정)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- BREEDING MODAL -->
-  <div class="modal-overlay" id="breeding-modal">
-    <div class="modal-card interactive">
+  <div class="modal-overlay interactive" id="breeding-modal" onclick="AquaApp.closeOutside(event, 'breeding-modal')">
+    <div class="modal-card">
       <div class="modal-header">
         <h3>🧪 지정 교배 부화장</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('breeding-modal')">✕</button>
       </div>
       <div class="modal-body">
-        <div class="breeding-slots">
-          <div class="breed-slot" id="slot-1" onclick="BreedingUI.toggleSelect(1)">
-            <div id="slot-1-text">➕ 부모 개체 선택</div>
-          </div>
-          <div style="font-weight: bold; color: var(--accent-purple);">♥</div>
-          <div class="breed-slot" id="slot-2" onclick="BreedingUI.toggleSelect(2)">
-            <div id="slot-2-text">➕ 부모 개체 선택</div>
-          </div>
+        <div class="breed-slot-container">
+          <div class="breed-slot" id="slot-1" onclick="BreedingUI.selectParent(1)">➕ 부모 1 선택</div>
+          <div class="breed-slot" id="slot-2" onclick="BreedingUI.selectParent(2)">➕ 부모 2 선택</div>
         </div>
-        
-        <div class="fish-list-mini" id="breeding-fish-list"></div>
-
-        <div class="prediction-box" id="breeding-prediction">
-          부모 개체 두 마리를 선택하면 유전 확률이 표시됩니다.
-        </div>
-        
-        <button class="btn-glass btn-purple" id="btn-breed" style="width: 100%; justify-content: center; padding: 12px; font-size: 15px;" disabled onclick="BreedingUI.executeBreeding()">
-          교배 시작 (비용: ₩3,000)
+        <div id="breed-select-list" style="display:none; max-height:120px; overflow-y:auto; border:1px solid var(--border-glass); border-radius:8px; padding:8px;"></div>
+        <div class="prediction-box" id="breed-prediction">부모를 모두 선택하면 유전학 리포트가 생성됩니다.</div>
+        <button class="btn-glass btn-purple" id="btn-breed" disabled style="padding:12px; font-size:15px; justify-content:center;" onclick="BreedingUI.execute()">
+          🧬 교배 진행 (비용: ₩3,000)
         </button>
       </div>
     </div>
   </div>
 
   <!-- SHOP MODAL -->
-  <div class="modal-overlay" id="shop-modal">
-    <div class="modal-card interactive">
+  <div class="modal-overlay interactive" id="shop-modal" onclick="AquaApp.closeOutside(event, 'shop-modal')">
+    <div class="modal-card">
       <div class="modal-header">
         <h3>🛒 아쿠아 상점</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('shop-modal')">✕</button>
@@ -127,86 +149,109 @@
     </div>
   </div>
 
-  <!-- AUCTION MODAL -->
-  <div class="modal-overlay" id="auction-modal">
-    <div class="modal-card interactive">
-      <div class="modal-header">
-        <h3>🏛️ 물고기 판매</h3>
-        <button class="btn-glass" onclick="AquaApp.closeModal('auction-modal')">✕</button>
-      </div>
-      <div class="modal-body" id="auction-fish-list"></div>
-    </div>
-  </div>
-
   <script>
     /* ==========================================================
        1. GAME STATE & AUDIO
        ========================================================== */
     const State = {
-      money: 45000, tankCapacity: 8, fishes: [], decorations: []
+      money: 35000, tankCapacity: 8, fishes: [], foods: [], decorations: []
     };
 
     const Sound = {
       ctx: null,
       init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
-      play(f1, f2, type='sine', dur=0.1) {
+      play(f1, f2, type='sine', dur=0.1, vol=0.1) {
         if (!this.ctx) return;
         const o = this.ctx.createOscillator(), g = this.ctx.createGain();
         o.type = type; o.frequency.setValueAtTime(f1, this.ctx.currentTime);
         o.frequency.exponentialRampToValueAtTime(f2, this.ctx.currentTime + dur);
-        g.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        g.gain.setValueAtTime(vol, this.ctx.currentTime);
         g.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + dur);
         o.connect(g); g.connect(this.ctx.destination);
         o.start(); o.stop(this.ctx.currentTime + dur + 0.05);
       },
-      bubble() { this.play(450, 900, 'sine', 0.1); },
+      bubble() { this.play(400, 800, 'sine', 0.1); },
       coin() { this.play(987, 1318, 'triangle', 0.2); },
-      magic() { this.play(600, 1200, 'sine', 0.4); } // Breeding success
+      magic() { this.play(600, 1200, 'sine', 0.4); },
+      thud() { this.play(150, 50, 'square', 0.1, 0.2); }
     };
 
     /* ==========================================================
-       2. GENETICS & FISH LOGIC
+       2. THREE.JS SCENE SETUP
        ========================================================== */
-    const COLORS = {
+    let scene, camera, renderer, sandMesh;
+    const tankX = 6, tankY = 3.5, tankZ = 3.5;
+
+    function initThree() {
+      const canvas = document.getElementById('webgl-canvas');
+      scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x050b14, 0.02);
+      camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
+      camera.position.set(0, 2, 16);
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      scene.add(new THREE.AmbientLight(0xcdeafe, 1.2));
+      const light = new THREE.DirectionalLight(0xffffff, 1.0);
+      light.position.set(5, 10, 5); scene.add(light);
+
+      // Sand floor
+      sandMesh = new THREE.Mesh(new THREE.PlaneGeometry(15, 10).rotateX(-Math.PI/2), new THREE.MeshStandardMaterial({color: 0x1e293b, roughness: 0.9}));
+      sandMesh.position.y = -tankY; scene.add(sandMesh);
+      
+      // Glass Wireframe
+      const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(tankX*2, tankY*2, tankZ*2));
+      scene.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.2 })));
+    }
+
+    /* ==========================================================
+       3. FISH & GENETICS LOGIC
+       ========================================================== */
+    const GENES = {
       BLUE: { hex: 0x38bdf8, name: "블루", tier: "Common", val: 5000 },
       RED: { hex: 0xf43f5e, name: "레드", tier: "Common", val: 5000 },
-      GREEN: { hex: 0x10b981, name: "그린", tier: "Rare", val: 15000 },
-      GOLD: { hex: 0xfacc15, name: "골드", tier: "Epic", val: 40000 },
-      PURPLE: { hex: 0xa855f7, name: "오로라(돌연변이)", tier: "Legendary", val: 120000 }
+      GREEN: { hex: 0x10b981, name: "그린", tier: "Rare", val: 18000 },
+      GOLD: { hex: 0xfacc15, name: "골드", tier: "Epic", val: 45000 },
+      MUTANT: { hex: 0xa855f7, name: "오로라(돌연변이)", tier: "Legendary", val: 150000 }
     };
 
     class Fish {
-      constructor(gene=null) {
+      constructor(geneKey) {
         this.id = Math.random().toString(36).substr(2,9);
-        this.gene = gene || (Math.random()>0.5 ? COLORS.BLUE : COLORS.RED);
-        this.name = this.gene.name + " 테트라";
-        this.tier = this.gene.tier;
-        this.value = this.gene.val;
+        this.geneKey = geneKey;
+        const g = GENES[geneKey];
+        this.name = g.name + " 테트라"; this.tier = g.tier; this.value = g.val;
         
         this.group = new THREE.Group();
-        // Body
         const mat = new THREE.MeshStandardMaterial({
-            color: this.gene.hex, 
-            roughness: 0.3, 
-            metalness: this.tier === 'Legendary' ? 0.8 : 0.2,
-            emissive: this.tier === 'Legendary' ? this.gene.hex : 0x000000,
-            emissiveIntensity: 0.4
+          color: g.hex, metalness: this.tier === 'Legendary'? 0.8:0.2, 
+          emissive: this.tier === 'Legendary'? g.hex:0x000, emissiveIntensity: 0.3
         });
-        const body = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12).scale(0.3, 0.6, 1.2), mat);
-        // Tail
-        const tail = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 3).rotateX(Math.PI/2), mat);
+        const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(0.3, 0.6, 1.2), mat);
+        const tail = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 3).rotateX(Math.PI/2), mat);
         tail.position.set(0, 0, -0.4);
         
         this.group.add(body); this.group.add(tail);
-        this.pos = new THREE.Vector3((Math.random()-0.5)*5, (Math.random()-0.5)*2, (Math.random()-0.5)*3);
-        this.vel = new THREE.Vector3((Math.random()-0.5)*0.06, 0, (Math.random()-0.5)*0.06);
+        this.pos = new THREE.Vector3((Math.random()-0.5)*10, (Math.random()-0.5)*4, (Math.random()-0.5)*5);
+        this.vel = new THREE.Vector3((Math.random()-0.5)*0.07, (Math.random()-0.5)*0.02, (Math.random()-0.5)*0.07);
         scene.add(this.group);
       }
-      update() {
+      update(foods) {
+        // Target food if exists
+        if(foods && foods.length > 0) {
+          const target = foods[0].mesh.position;
+          const dir = new THREE.Vector3().subVectors(target, this.pos).normalize();
+          this.vel.lerp(dir.multiplyScalar(0.08), 0.05);
+          if(this.pos.distanceTo(target) < 0.5) {
+             scene.remove(foods[0].mesh);
+             foods.shift(); // Eat food
+             Sound.bubble();
+          }
+        }
+
         this.pos.add(this.vel);
-        if(Math.abs(this.pos.x) > 5.5) this.vel.x *= -1;
-        if(Math.abs(this.pos.y) > 2.5) this.vel.y *= -1;
-        if(Math.abs(this.pos.z) > 2.5) this.vel.z *= -1;
+        if(Math.abs(this.pos.x) > tankX-0.5) this.vel.x *= -1;
+        if(Math.abs(this.pos.y) > tankY-0.5) this.vel.y *= -1;
+        if(Math.abs(this.pos.z) > tankZ-0.5) this.vel.z *= -1;
         this.group.position.copy(this.pos);
         this.group.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), this.vel.clone().normalize());
       }
@@ -214,197 +259,266 @@
     }
 
     /* ==========================================================
-       3. BREEDING SYSTEM UI & LOGIC
+       4. BREEDING UI SYSTEM
        ========================================================== */
     const BreedingUI = {
-      parent1: null, parent2: null, activeSlot: null,
-
+      p1: null, p2: null, active: 0,
       open() {
-        this.parent1 = null; this.parent2 = null;
-        this.updateSlots();
-        document.getElementById('breeding-prediction').innerHTML = "부모 개체 두 마리를 선택하면 유전 확률이 표시됩니다.";
+        this.p1 = null; this.p2 = null;
+        document.getElementById('slot-1').innerText = "➕ 부모 1 선택";
+        document.getElementById('slot-2').innerText = "➕ 부모 2 선택";
+        document.getElementById('breed-prediction').innerText = "부모를 선택하세요.";
         document.getElementById('btn-breed').disabled = true;
-        document.getElementById('breeding-fish-list').classList.remove('active');
+        document.getElementById('breed-select-list').style.display = 'none';
         AquaApp.openModal('breeding-modal');
       },
-
-      toggleSelect(slotNum) {
-        this.activeSlot = slotNum;
-        const list = document.getElementById('breeding-fish-list');
-        list.innerHTML = '';
-        
-        const available = State.fishes.filter(f => f !== this.parent1 && f !== this.parent2);
-        if(available.length === 0) {
-          list.innerHTML = `<div style="text-align:center; padding:10px; color:#94a3b8;">선택 가능한 물고기가 없습니다.</div>`;
-        } else {
-          available.forEach(f => {
-            list.innerHTML += `
-              <div class="fish-item-mini" onclick="BreedingUI.selectFish('${f.id}')">
-                <span class="tier-${f.tier.toLowerCase()}">${f.name} (${f.tier})</span>
-              </div>
-            `;
-          });
-        }
-        list.classList.add('active');
+      selectParent(slot) {
+        this.active = slot;
+        const list = document.getElementById('breed-select-list');
+        list.style.display = 'block';
+        list.innerHTML = State.fishes.filter(f => f !== this.p1 && f !== this.p2).map(f => 
+          `<div class="list-item" style="padding:6px; margin-bottom:4px; cursor:pointer;" onclick="BreedingUI.confirmFish('${f.id}')">
+            <span class="tier-${f.tier}">${f.name}</span>
+          </div>`
+        ).join('') || `<div style="text-align:center; color:#94a3b8;">가능한 개체가 없습니다.</div>`;
       },
-
-      selectFish(id) {
+      confirmFish(id) {
         const fish = State.fishes.find(f => f.id === id);
-        if(this.activeSlot === 1) this.parent1 = fish;
-        else this.parent2 = fish;
+        if(this.active === 1) { this.p1 = fish; document.getElementById('slot-1').innerHTML = `<b class="tier-${fish.tier}">${fish.name}</b>`; }
+        else { this.p2 = fish; document.getElementById('slot-2').innerHTML = `<b class="tier-${fish.tier}">${fish.name}</b>`; }
+        document.getElementById('breed-select-list').style.display = 'none';
         
-        document.getElementById('breeding-fish-list').classList.remove('active');
-        this.updateSlots();
-        this.calculatePrediction();
-      },
-
-      updateSlots() {
-        const s1 = document.getElementById('slot-1');
-        const s2 = document.getElementById('slot-2');
-        if(this.parent1) { s1.classList.add('filled'); s1.innerHTML = `<div class="tier-${this.parent1.tier.toLowerCase()}">${this.parent1.name}</div>`; }
-        else { s1.classList.remove('filled'); s1.innerHTML = `➕ 부모 선택`; }
-        
-        if(this.parent2) { s2.classList.add('filled'); s2.innerHTML = `<div class="tier-${this.parent2.tier.toLowerCase()}">${this.parent2.name}</div>`; }
-        else { s2.classList.remove('filled'); s2.innerHTML = `➕ 부모 선택`; }
-      },
-
-      calculatePrediction() {
-        if(!this.parent1 || !this.parent2) return;
-        document.getElementById('btn-breed').disabled = false;
-        
-        // 멘델 확률 로직 모방
-        let mutationRate = 10;
-        if(this.parent1.tier === 'Epic' || this.parent2.tier === 'Epic') mutationRate = 25;
-        
-        let html = `
-          <div style="color:var(--accent-cyan)">💧 유전학 예측 리포트</div>
-          • 부모1 (${this.parent1.name}) 형질 유전: ${45 - (mutationRate/2)}%<br>
-          • 부모2 (${this.parent2.name}) 형질 유전: ${45 - (mutationRate/2)}%<br>
-          <span style="color:var(--accent-gold)">• 희귀 돌연변이 발생 확률: ${mutationRate}%</span>
-        `;
-        document.getElementById('breeding-prediction').innerHTML = html;
-      },
-
-      executeBreeding() {
-        if(State.money < 3000) return alert("자산이 부족합니다!");
-        if(State.fishes.length >= State.tankCapacity) return alert("수용량이 가득 찼습니다!");
-        
-        State.money -= 3000;
-        Sound.init(); Sound.magic();
-        
-        // 유전자 추첨
-        const roll = Math.random() * 100;
-        let mutationRate = (this.parent1.tier === 'Epic' || this.parent2.tier === 'Epic') ? 25 : 10;
-        
-        let childGene;
-        if (roll < mutationRate) {
-          // 돌연변이 (Green, Gold, Purple 중 랜덤)
-          const m = Math.random();
-          if(m < 0.2) childGene = COLORS.PURPLE;
-          else if(m < 0.5) childGene = COLORS.GOLD;
-          else childGene = COLORS.GREEN;
-        } else if (roll < mutationRate + (100-mutationRate)/2) {
-          childGene = this.parent1.gene;
-        } else {
-          childGene = this.parent2.gene;
+        if(this.p1 && this.p2) {
+          document.getElementById('btn-breed').disabled = false;
+          let mutRate = (this.p1.tier==='Epic' || this.p2.tier==='Epic') ? 25 : 10;
+          document.getElementById('breed-prediction').innerHTML = `
+            <span style="color:var(--accent-cyan)">유전학 리포트</span><br>
+            유전 형질 계승 확률: ${100 - mutRate}%<br>
+            <span style="color:var(--accent-gold)">돌연변이 발생 확률: ${mutRate}%</span>
+          `;
         }
-
-        const newFish = new Fish(childGene);
-        // 부모 근처에서 태어나게
-        newFish.pos.copy(this.parent1.pos);
-        State.fishes.push(newFish);
-
-        AquaApp.updateUI();
-        AquaApp.saveLocal();
+      },
+      execute() {
+        if(State.money < 3000) return alert("비용이 부족합니다.");
+        if(State.fishes.length >= State.tankCapacity) return alert("수용량이 꽉 찼습니다.");
         
-        alert(`🎉 교배 성공!\n새로운 [${newFish.name}] 이(가) 태어났습니다!`);
+        State.money -= 3000; Sound.init(); Sound.magic();
+        let mutRate = (this.p1.tier==='Epic' || this.p2.tier==='Epic') ? 25 : 10;
+        let childGene;
+        if(Math.random()*100 < mutRate) {
+          const r = Math.random();
+          childGene = r<0.2 ? 'MUTANT' : (r<0.5 ? 'GOLD' : 'GREEN');
+        } else {
+          childGene = Math.random()>0.5 ? this.p1.geneKey : this.p2.geneKey;
+        }
+        
+        const baby = new Fish(childGene);
+        baby.pos.copy(this.p1.pos);
+        State.fishes.push(baby);
+        AquaApp.updateUI(); AquaApp.saveLocal();
+        alert(`🎉 교배 성공!\n[${baby.name}] 탄생!`);
         AquaApp.closeModal('breeding-modal');
       }
     };
 
     /* ==========================================================
-       4. THREE.JS & CORE APP (Compressed for integration)
+       5. SHOP & BUILD SYSTEM
        ========================================================== */
-    let scene, camera, renderer, tankBounds, sandMesh;
-    const canvas = document.getElementById('webgl-canvas');
-
-    const SHOP_ITEMS = [
-      { id: 'plant', name: '수초 (나나)', desc: '푸른 수초 한 촉.', price: 2000, type: 'deco' },
-      { id: 'rock', name: '청룡석', desc: '회색 암석 포인트.', price: 5000, type: 'deco' },
-      { id: 'upgrade', name: '수조 확장 (+5마리)', desc: '최대 수용량 증가', price: 40000, type: 'upgrade' }
+    const SHOP_DB = [
+      { id: 'plant', name: '나나 수초', price: 2000, type: 'deco' },
+      { id: 'rock', name: '청룡석', price: 5000, type: 'deco' },
+      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up' }
     ];
 
-    function initThree() {
-      scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x061826, 0.03);
-      camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-      camera.position.set(0, 2, 14);
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-
-      scene.add(new THREE.AmbientLight(0xcdeafe, 1.1));
-      const light = new THREE.DirectionalLight(0xe0f2fe, 1.3);
-      light.position.set(2, 9, 4); scene.add(light);
-
-      tankBounds = { x: 6, y: 3.4, z: 3 };
-      sandMesh = new THREE.Mesh(new THREE.PlaneGeometry(12, 6).rotateX(-Math.PI/2), new THREE.MeshStandardMaterial({color: 0x1e293b, roughness: 0.9}));
-      sandMesh.position.y = -3.4; scene.add(sandMesh);
-      
-      const edges = new THREE.EdgesGeometry(new THREE.BoxGeometry(12, 6.8, 6));
-      scene.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.3 })));
+    function createDeco(type) {
+      if(type==='plant') return new THREE.Mesh(new THREE.ConeGeometry(0.3,1.5,5).translate(0,0.75,0), new THREE.MeshStandardMaterial({color:0x10b981}));
+      if(type==='rock') return new THREE.Mesh(new THREE.DodecahedronGeometry(0.8).translate(0,0.4,0), new THREE.MeshStandardMaterial({color:0x64748b}));
     }
 
+    const Builder = {
+      active: false, item: null, ghost: null, ray: new THREE.Raycaster(), mouse: new THREE.Vector2(),
+      start(item) {
+        AquaApp.closeModal('shop-modal');
+        this.active = true; this.item = item;
+        this.ghost = createDeco(item.id);
+        this.ghost.material.transparent = true; this.ghost.material.opacity = 0.5; this.ghost.material.emissive.setHex(0x10b981);
+        scene.add(this.ghost);
+        document.getElementById('build-overlay').style.display = 'block';
+        document.getElementById('ui-layer').style.pointerEvents = 'none';
+      },
+      move(e) {
+        if(!this.active) return;
+        this.mouse.x = (e.clientX/window.innerWidth)*2-1; this.mouse.y = -(e.clientY/window.innerHeight)*2+1;
+        this.ray.setFromCamera(this.mouse, camera);
+        const hits = this.ray.intersectObject(sandMesh);
+        if(hits.length>0) this.ghost.position.copy(hits[0].point);
+      },
+      click(e) {
+        if(!this.active) return;
+        if(e.button===2) { this.cancel(); return; } // Right click cancel
+        if(State.money < this.item.price) { alert("잔액 부족"); this.cancel(); return; }
+        
+        State.money -= this.item.price; Sound.init(); Sound.thud();
+        const data = { id: this.item.id, x: this.ghost.position.x, z: this.ghost.position.z };
+        State.decorations.push(data);
+        this.spawn(data);
+        this.cancel(); AquaApp.saveLocal();
+      },
+      spawn(data) {
+        const m = createDeco(data.id); m.position.set(data.x, -tankY, data.z); scene.add(m);
+      },
+      cancel() {
+        this.active = false; scene.remove(this.ghost); this.ghost=null;
+        document.getElementById('build-overlay').style.display = 'none';
+        document.getElementById('ui-layer').style.pointerEvents = 'none'; // ui-layer 자체는 none, 버튼만 auto
+        AquaApp.updateUI();
+      }
+    };
+    window.addEventListener('mousemove', e=>Builder.move(e));
+    window.addEventListener('mousedown', e=>{ if(Builder.active) Builder.click(e); });
+    window.addEventListener('contextmenu', e=>{ if(Builder.active) e.preventDefault(); });
+
+    /* ==========================================================
+       6. MAIN APP CONTROLLER (Save/Load/UI)
+       ========================================================== */
     const AquaApp = {
       init() {
-        initThree();
-        this.loadLocal();
-        if(State.fishes.length === 0) { State.fishes.push(new Fish(COLORS.BLUE), new Fish(COLORS.RED)); }
-        
-        // Render Shop
-        const slist = document.getElementById('shop-list');
-        SHOP_ITEMS.forEach(i => {
-          slist.innerHTML += `<div style="display:flex; justify-content:space-between; margin-bottom:10px; background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
-            <div><b>${i.name}</b><br><span style="font-size:12px; color:#94a3b8;">${i.desc}</span></div>
-            <button class="btn-glass btn-green" onclick="AquaApp.buyItem('${i.id}')">₩${i.price.toLocaleString()}</button>
-          </div>`;
-        });
+        initThree(); this.loadLocal();
+        if(State.fishes.length===0) { State.fishes.push(new Fish('BLUE'), new Fish('RED')); }
+        State.decorations.forEach(d => Builder.spawn(d));
+        this.updateUI();
 
-        this.updateUI();
-        const animate = () => { requestAnimationFrame(animate); State.fishes.forEach(f => f.update()); renderer.render(scene, camera); };
+        const animate = () => {
+          requestAnimationFrame(animate);
+          State.fishes.forEach(f => f.update(State.foods));
+          
+          // Food falling animation
+          for(let i=State.foods.length-1; i>=0; i--) {
+             State.foods[i].mesh.position.y -= 0.04;
+             if(State.foods[i].mesh.position.y < -tankY) {
+               scene.remove(State.foods[i].mesh);
+               State.foods.splice(i,1);
+             }
+          }
+          renderer.render(scene, camera);
+        };
         animate();
+
+        // ESC Key to close modals/build
+        window.addEventListener('keydown', e => {
+           if(e.key === 'Escape') {
+              if(Builder.active) Builder.cancel();
+              document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+           }
+        });
+        
+        // Auto Save
+        setInterval(() => this.saveLocal(), 5000);
       },
-      buyItem(id) {
-        const i = SHOP_ITEMS.find(x=>x.id===id);
-        if(State.money < i.price) return alert("자산 부족!");
-        if(i.type==='upgrade'){ State.money-=i.price; State.tankCapacity+=5; alert("수용량 +5 증가!"); }
-        else alert("1단계 아쿠아스케이핑 로직 생략 (공간 최적화, 수초 구현 완료됨)");
-        this.updateUI();
-      },
-      buyStarterFish() {
-        if(State.money < 5000) return alert("자산 부족");
-        if(State.fishes.length >= State.tankCapacity) return alert("수용량 초과");
-        Sound.init(); Sound.coin(); State.money-=5000; State.fishes.push(new Fish(Math.random()>0.5?COLORS.BLUE:COLORS.RED)); this.updateUI();
-      },
-      feedFish() { Sound.init(); Sound.bubble(); },
-      openModal(id) {
-        if(id==='auction-modal') {
-          const l = document.getElementById('auction-fish-list');
-          l.innerHTML = State.fishes.map(f=>`<div style="display:flex; justify-content:space-between; margin-bottom:8px; padding:10px; background:rgba(255,255,255,0.05); border-radius:8px;">
-            <span class="tier-${f.tier.toLowerCase()}">${f.name} (₩${f.value.toLocaleString()})</span>
-            <button class="btn-glass btn-gold" onclick="AquaApp.sellFish('${f.id}')">판매</button>
-          </div>`).join('');
+      
+      feedFish() {
+        Sound.init(); Sound.bubble();
+        for(let i=0; i<3; i++) {
+          const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.08), new THREE.MeshBasicMaterial({color:0xf59e0b}));
+          mesh.position.set((Math.random()-0.5)*8, tankY-0.5, (Math.random()-0.5)*4);
+          scene.add(mesh);
+          State.foods.push({mesh: mesh});
         }
-        document.getElementById(id).classList.add('active');
+      },
+      
+      buyStarterFish() {
+        if(State.money < 5000) return alert("자산 부족!");
+        if(State.fishes.length >= State.tankCapacity) return alert("수조 가득참!");
+        Sound.init(); Sound.coin(); State.money-=5000;
+        State.fishes.push(new Fish(Math.random()>0.5 ? 'BLUE':'RED'));
+        this.updateUI(); this.saveLocal();
+      },
+
+      /* UI & Modals */
+      openTradeModal() {
+        this.renderSellList();
+        document.getElementById('trade-modal').classList.add('active');
+      },
+      openShopModal() {
+        const list = document.getElementById('shop-list');
+        list.innerHTML = SHOP_DB.map(i => `
+          <div class="list-item">
+            <div><b>${i.name}</b></div>
+            <button class="btn-glass btn-green" onclick="AquaApp.buyShop('${i.id}')">₩${i.price.toLocaleString()}</button>
+          </div>
+        `).join('');
+        document.getElementById('shop-modal').classList.add('active');
       },
       closeModal(id) { document.getElementById(id).classList.remove('active'); },
+      closeOutside(e, id) { if(e.target.id === id) this.closeModal(id); },
+      
+      buyShop(id) {
+        const item = SHOP_DB.find(i=>i.id===id);
+        if(State.money < item.price) return alert("잔액 부족!");
+        if(item.type==='up') {
+          Sound.init(); Sound.coin(); State.money-=item.price; State.tankCapacity+=5;
+          alert("수조 용량 증가!"); this.updateUI(); this.saveLocal();
+        } else {
+          Builder.start(item);
+        }
+      },
+
+      /* Tabs Logic */
+      switchTab(tab) {
+        document.getElementById('tab-btn-sell').classList.toggle('active', tab==='sell');
+        document.getElementById('tab-btn-auction').classList.toggle('active', tab==='auction');
+        document.getElementById('tab-sell-content').classList.toggle('active', tab==='sell');
+        document.getElementById('tab-auction-content').classList.toggle('active', tab==='auction');
+      },
+      renderSellList() {
+        const c = document.getElementById('tab-sell-content');
+        if(State.fishes.length===0) { c.innerHTML = '<div style="text-align:center; color:#94a3b8;">판매할 물고기가 없습니다.</div>'; return; }
+        c.innerHTML = State.fishes.map(f => `
+          <div class="list-item">
+            <span class="tier-${f.tier}">${f.name}</span>
+            <button class="btn-glass btn-gold" onclick="AquaApp.sellFish('${f.id}')">₩${f.value.toLocaleString()} 판매</button>
+          </div>
+        `).join('');
+      },
       sellFish(id) {
         const idx = State.fishes.findIndex(f=>f.id===id);
-        if(idx>-1) { Sound.init(); Sound.coin(); State.money+=State.fishes[idx].value; State.fishes[idx].destroy(); State.fishes.splice(idx,1); this.updateUI(); this.openModal('auction-modal'); }
+        if(idx > -1) {
+           Sound.init(); Sound.coin();
+           State.money += State.fishes[idx].value;
+           State.fishes[idx].destroy();
+           State.fishes.splice(idx,1);
+           this.updateUI(); this.renderSellList(); this.saveLocal();
+        }
       },
+
       updateUI() {
         document.getElementById('stat-money').innerText = `₩ ${State.money.toLocaleString()}`;
         document.getElementById('stat-fish-count').innerText = `${State.fishes.length} / ${State.tankCapacity}`;
       },
-      saveLocal() {}, loadLocal() {} // Simplified for space
+
+      /* Robust Save/Load */
+      saveLocal() {
+        const data = {
+          money: State.money, tankCapacity: State.tankCapacity,
+          fishes: State.fishes.map(f => f.geneKey),
+          decorations: State.decorations
+        };
+        localStorage.setItem('aqua_save_v4', JSON.stringify(data));
+      },
+      loadLocal() {
+        const raw = localStorage.getItem('aqua_save_v4');
+        if(raw) {
+           try {
+             const d = JSON.parse(raw);
+             State.money = d.money || 35000;
+             State.tankCapacity = d.tankCapacity || 8;
+             State.decorations = d.decorations || [];
+             if(d.fishes && d.fishes.length>0) {
+               d.fishes.forEach(geneKey => State.fishes.push(new Fish(geneKey)));
+             }
+           } catch(e) { console.error("Save load failed", e); }
+        }
+      }
     };
     window.addEventListener('DOMContentLoaded', () => AquaApp.init());
   </script>
