@@ -320,10 +320,10 @@
     let glassPanels = [], midPlane = null;
     const tankX = 6, tankY = 3.5, tankZ = 3.5;
 
-    function randomTankPoint() {
+    function randomTankPoint(bottomDweller) {
       return new THREE.Vector3(
         (Math.random()-0.5)*(tankX*1.7),
-        (Math.random()-0.5)*(tankY*1.7),
+        bottomDweller ? -tankY*0.75 + Math.random()*tankY*0.4 : (Math.random()-0.5)*(tankY*1.7),
         (Math.random()-0.5)*(tankZ*1.7)
       );
     }
@@ -494,21 +494,24 @@
        ========================================================== */
     // Body-shape archetypes (procedural geometry proportions), shared across real species below
     const SPECIES = {
-      GUPPY: { label: '구피형', bodyScale: [0.28, 0.45, 0.9], finLength: 0.5, finHeight: 0.32, tailAngles: [-0.4, -0.15, 0.15, 0.4], dorsal: false },
-      TETRA: { label: '테트라형', bodyScale: [0.22, 0.55, 1.25], finLength: 0.45, finHeight: 0.4, tailAngles: [-0.3, 0.3], dorsal: false },
-      ANGEL: { label: '엔젤형', bodyScale: [0.14, 1.0, 0.8], finLength: 0.4, finHeight: 0.5, tailAngles: [-0.25, 0, 0.25], dorsal: true },
-      BETTA: { label: '베타형', bodyScale: [0.26, 0.5, 1.0], finLength: 0.75, finHeight: 0.55, tailAngles: [-0.5, -0.25, 0, 0.25, 0.5], dorsal: true }
+      GUPPY:  { label: '구피형', bodyScale: [0.28, 0.45, 0.9], finLength: 0.5, finHeight: 0.32, tailAngles: [-0.4, -0.15, 0.15, 0.4], dorsal: false },
+      TETRA:  { label: '테트라형', bodyScale: [0.22, 0.55, 1.25], finLength: 0.45, finHeight: 0.4, tailAngles: [-0.3, 0.3], dorsal: false },
+      ANGEL:  { label: '엔젤형', bodyScale: [0.14, 1.0, 0.8], finLength: 0.4, finHeight: 0.5, tailAngles: [-0.25, 0, 0.25], dorsal: true },
+      BETTA:  { label: '베타형', bodyScale: [0.26, 0.5, 1.0], finLength: 0.75, finHeight: 0.55, tailAngles: [-0.5, -0.25, 0, 0.25, 0.5], dorsal: true },
+      MOLLY:  { label: '몰리형', bodyScale: [0.3, 0.5, 0.95], finLength: 0.4, finHeight: 0.42, tailAngles: [-0.35, 0, 0.35], dorsal: true },
+      CORY:   { label: '코리도라스형', bodyScale: [0.26, 0.32, 0.6], finLength: 0.22, finHeight: 0.2, tailAngles: [-0.2, 0.2], dorsal: false, bottomDweller: true },
+      DISCUS: { label: '디스커스형', bodyScale: [0.1, 1.15, 1.1], finLength: 0.35, finHeight: 0.65, tailAngles: [-0.2, 0, 0.2], dorsal: true }
     };
 
     // Real ornamental fish species catalog, priced roughly like real fry prices (원)
     const FISH_SPECIES = {
       GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY' },
-      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'GUPPY' },
+      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'MOLLY' },
       NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA' },
-      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'TETRA' },
+      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'CORY' },
       BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA' },
       ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL' },
-      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'ANGEL' }
+      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'DISCUS' }
     };
 
     // Real-ish temperament: aggression (0-10) and relative size, used for fights/predation.
@@ -656,7 +659,8 @@
         this.vel = new THREE.Vector3((Math.random()-0.5)*0.02, (Math.random()-0.5)*0.01, (Math.random()-0.5)*0.02);
         this.maxSpeed = 0.025 + Math.random()*0.02;
         this.turnRate = 0.006 + Math.random()*0.004;
-        this.wanderTarget = randomTankPoint();
+        this.bottomDweller = !!sp.bottomDweller;
+        this.wanderTarget = randomTankPoint(this.bottomDweller);
         this.wanderTimer = 240 + Math.random()*240;
 
         this.group.userData.fishId = this.id;
@@ -711,18 +715,31 @@
           foods.forEach(f => { const d = this.pos.distanceTo(f.mesh.position); if (d < nd) { nd = d; targetFood = f; } });
         }
 
+        // Real fish alternate quick darts, steady cruising, and brief still pauses rather than
+        // moving at one constant speed. A short random "burst" occasionally multiplies top speed,
+        // and (when not chasing food) a rest phase drops it to near-zero for a beat.
+        this._burstTimer = (this._burstTimer || 0) - 1;
+        if (this._burstTimer <= 0) {
+          this._burstMultiplier = 1;
+          if (Math.random() < 0.003) { this._burstMultiplier = 2.2 + Math.random()*0.8; this._burstTimer = 20 + Math.random()*20; }
+        }
+        this._pauseTimer = (this._pauseTimer || 0) - 1;
+        if (!targetFood && this._pauseTimer <= 0 && Math.random() < 0.0015) this._pauseTimer = 60 + Math.random()*120;
+        const isResting = !targetFood && this._pauseTimer > 0;
+        const effMaxSpeed = this.maxSpeed * (isResting ? 0.12 : (this._burstMultiplier || 1));
+
         let desired;
         if (targetFood) {
           desired = new THREE.Vector3().subVectors(targetFood.mesh.position, this.pos);
           if (desired.lengthSq() < 0.0001) desired.set(0, 0, 1);
-          desired.normalize().multiplyScalar(this.maxSpeed);
+          desired.normalize().multiplyScalar(effMaxSpeed);
         } else {
           this.wanderTimer--;
           if (this.wanderTimer <= 0 || this.pos.distanceTo(this.wanderTarget) < 0.5) {
-            this.wanderTarget = randomTankPoint();
+            this.wanderTarget = randomTankPoint(this.bottomDweller);
             this.wanderTimer = 240 + Math.random()*240;
           }
-          desired = new THREE.Vector3().subVectors(this.wanderTarget, this.pos).normalize().multiplyScalar(this.maxSpeed*0.55);
+          desired = new THREE.Vector3().subVectors(this.wanderTarget, this.pos).normalize().multiplyScalar(effMaxSpeed*0.55);
         }
 
         // Soft wall avoidance
@@ -738,7 +755,7 @@
         const steer = new THREE.Vector3().subVectors(desired, this.vel);
         if (steer.length() > this.turnRate) steer.setLength(this.turnRate);
         this.vel.add(steer);
-        if (this.vel.length() > this.maxSpeed) this.vel.setLength(this.maxSpeed);
+        if (this.vel.length() > effMaxSpeed) this.vel.setLength(effMaxSpeed);
 
         this.pos.add(this.vel);
         this.pos.x = THREE.MathUtils.clamp(this.pos.x, -tankX+0.3, tankX-0.3);
@@ -768,6 +785,17 @@
         const finAmp = speed < 0.008 ? 0.32 : 0.12;
         this.finL.rotation.z = 0.3 + Math.sin(this._animT*4 + this.phase)*finAmp;
         this.finR.rotation.z = -0.3 - Math.sin(this._animT*4 + this.phase + Math.PI)*finAmp;
+      }
+
+      startle(point) {
+        const away = new THREE.Vector3().subVectors(this.pos, point);
+        if (away.lengthSq() < 0.0001) away.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5);
+        away.normalize().multiplyScalar(this.maxSpeed*3);
+        this.vel.add(away);
+        if (this.vel.length() > this.maxSpeed*3) this.vel.setLength(this.maxSpeed*3);
+        this._burstMultiplier = 3;
+        this._burstTimer = 40;
+        this._pauseTimer = 0;
       }
 
       destroy() { scene.remove(this.group); }
@@ -983,8 +1011,45 @@
     ];
 
     function createDeco(type) {
-      if(type==='plant') return new THREE.Mesh(new THREE.ConeGeometry(0.3,1.5,5).translate(0,0.75,0), new THREE.MeshStandardMaterial({color:0x10b981}));
-      if(type==='rock') return new THREE.Mesh(new THREE.DodecahedronGeometry(0.8).translate(0,0.4,0), new THREE.MeshStandardMaterial({color:0x64748b}));
+      if(type==='plant') {
+        const g = new THREE.Group();
+        const bladeMats = [
+          new THREE.MeshStandardMaterial({ color: 0x16a34a, side: THREE.DoubleSide, roughness: 0.85 }),
+          new THREE.MeshStandardMaterial({ color: 0x22c55e, side: THREE.DoubleSide, roughness: 0.85 })
+        ];
+        for (let i=0; i<7; i++) {
+          const h = 0.9 + Math.random()*0.7;
+          const geo = new THREE.PlaneGeometry(0.1, h, 1, 8);
+          const pos = geo.attributes.position;
+          for (let v=0; v<pos.count; v++) {
+            const yFrac = (pos.getY(v) + h/2) / h; // 0 at base, 1 at tip
+            pos.setX(v, pos.getX(v) + Math.pow(yFrac, 2) * 0.35);
+            pos.setZ(v, pos.getZ(v) + Math.sin(yFrac*Math.PI*1.5) * 0.03);
+          }
+          geo.computeVertexNormals();
+          geo.translate(0, h/2, 0);
+          const blade = new THREE.Mesh(geo, bladeMats[i % 2]);
+          blade.rotation.y = Math.random()*Math.PI*2;
+          blade.position.set((Math.random()-0.5)*0.35, 0, (Math.random()-0.5)*0.35);
+          g.add(blade);
+        }
+        return g;
+      }
+      if(type==='rock') {
+        const g = new THREE.Group();
+        const mats = [
+          new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.95 }),
+          new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.95 })
+        ];
+        for (let i=0; i<3; i++) {
+          const r = 0.3 + Math.random()*0.35;
+          const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), mats[i % 2]);
+          rock.position.set((Math.random()-0.5)*0.7, r*0.4, (Math.random()-0.5)*0.7);
+          rock.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+          g.add(rock);
+        }
+        return g;
+      }
       if(type==='driftwood') {
         const g = new THREE.Group();
         const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.22,1.8,6).translate(0,0.9,0), new THREE.MeshStandardMaterial({color:0x5b3a29, roughness:1}));
@@ -1236,7 +1301,8 @@
       }
     };
 
-    // Click a fish in the tank to open its info popup (ignored while placing/editing decorations)
+    // Click a fish in the tank to open its info popup; tapping empty water instead
+    // startles the whole school, like knocking on the glass (ignored while placing/editing decorations)
     window.addEventListener('click', e => {
       if (Builder.active || DecoEditor.active) return;
       if (e.target.id !== 'webgl-canvas') return;
@@ -1244,10 +1310,15 @@
       const ray = new THREE.Raycaster();
       ray.setFromCamera(mouse, camera);
       const hits = ray.intersectObjects(State.fishes.map(f => f.group), true);
-      if (hits.length === 0) return;
-      let obj = hits[0].object;
-      while (obj && !obj.userData.fishId) obj = obj.parent;
-      if (obj) FishInfoUI.open(obj.userData.fishId);
+      if (hits.length > 0) {
+        let obj = hits[0].object;
+        while (obj && !obj.userData.fishId) obj = obj.parent;
+        if (obj) { FishInfoUI.open(obj.userData.fishId); return; }
+      }
+      const tapHit = ray.intersectObjects([sandMesh, ...glassPanels])[0];
+      const tapPoint = tapHit ? tapHit.point : new THREE.Vector3(0, 0, 0);
+      Sound.init(); Sound.thud();
+      State.fishes.forEach(f => f.startle(tapPoint));
     });
 
     /* ==========================================================
