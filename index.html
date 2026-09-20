@@ -108,6 +108,7 @@
     @keyframes shimmer { to { background-position: -250% center; } }
     .cond-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .num-input { width: 90px; padding: 8px; border-radius: 12px; border: 1px solid var(--border-glass); background: rgba(0,0,0,0.3); color: #fff; }
+    .sync-textarea { width: 100%; margin-top: 6px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-glass); border-radius: 10px; padding: 8px; font-size: 11px; font-family: monospace; resize: vertical; }
 
     @keyframes toastPop {
       from { transform: translateY(-10px) scale(0.9); opacity: 0; }
@@ -146,6 +147,7 @@
         <button class="btn-glass" onclick="TankManager.open()">🏠 <span id="tank-switch-label">1번 어항</span></button>
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
         <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
+        <button class="btn-glass" onclick="SyncUI.open()">📲 기기 동기화</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
       </div>
     </header>
@@ -295,6 +297,30 @@
         <div class="cond-text">어항을 선택하면 해당 어항으로 이동해서 관리할 수 있습니다.</div>
         <div id="tank-switch-list"></div>
         <div class="cond-text">새 어항은 인테리어 상점 &gt; 시설 탭에서 구매할 수 있습니다. (다음 어항 가격: ₩<span id="tank-buy-cost">40,000</span>)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEVICE SYNC MODAL (export/import save code) -->
+  <div class="modal-overlay interactive" id="sync-modal" onclick="AquaApp.closeOutside(event, 'sync-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📲 기기 동기화</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('sync-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="cond-text">코드를 내보내서 다른 기기(예: PC ↔ 모바일)에 붙여넣으면 진행 상황을 그대로 이어할 수 있습니다. 자동 동기화는 아니며, 옮길 때마다 새로 내보내기/가져오기 해야 합니다.</div>
+        <div>
+          <b>📤 내보내기</b>
+          <textarea id="sync-export-text" readonly rows="4" class="sync-textarea"></textarea>
+          <button class="btn-glass btn-cyan" style="margin-top:6px; width:100%; justify-content:center;" onclick="SyncUI.copyExport()">📋 코드 복사</button>
+        </div>
+        <div style="margin-top:14px;">
+          <b>📥 가져오기</b>
+          <textarea id="sync-import-text" rows="4" placeholder="다른 기기에서 받은 코드를 여기에 붙여넣으세요" class="sync-textarea"></textarea>
+          <button class="btn-glass btn-gold" style="margin-top:6px; width:100%; justify-content:center;" onclick="SyncUI.applyImport()">적용하고 새로고침</button>
+        </div>
+        <div class="cond-text">⚠️ 가져오기를 적용하면 이 기기의 현재 진행 상황은 사라지고 코드의 내용으로 덮어써집니다.</div>
       </div>
     </div>
   </div>
@@ -1094,7 +1120,9 @@
 
       update(foods) {
         const qualityPenalty = Math.max(0, (60 - State.water.quality)) / 100; // up to +100% decay when water is very poor
-        this.hunger = Math.max(0, this.hunger - 0.0015 * (1 + qualityPenalty));
+        // Slowed down ~3x (was 0.0015) so fish stay comfortably fed for a good while after eating
+        // instead of needing food again within a minute.
+        this.hunger = Math.max(0, this.hunger - 0.0005 * (1 + qualityPenalty));
         this._updateHungerSprite();
         this.sickSprite.visible = this.sick;
 
@@ -2090,6 +2118,48 @@
         this.syncActiveSnapshot(); // so the currently-active tank's row shows an accurate count too
         this.renderSwitcher();
         AquaApp.openModal('tank-modal');
+      }
+    };
+
+    /* ==========================================================
+       7c. CROSS-DEVICE SYNC (manual export/import code)
+       ========================================================== */
+    // No backend/account system exists, so "syncing" is a manual step: the full save is packed
+    // into a base64 code the player copies from one device and pastes into another. encodeURIComponent
+    // + escape/unescape around atob/btoa is the standard workaround for base64-encoding text that
+    // contains non-Latin1 characters (Korean tank/fish names, etc.), which btoa can't handle directly.
+    const SyncUI = {
+      open() {
+        AquaApp.saveLocal(); // capture the latest state, not whatever was on disk at last autosave
+        const raw = localStorage.getItem(SAVE_KEY);
+        document.getElementById('sync-export-text').value = raw ? btoa(unescape(encodeURIComponent(raw))) : '';
+        document.getElementById('sync-import-text').value = '';
+        AquaApp.openModal('sync-modal');
+      },
+      copyExport() {
+        const ta = document.getElementById('sync-export-text');
+        if (!ta.value) return alert('내보낼 저장 데이터가 없습니다.');
+        ta.select(); ta.setSelectionRange(0, 999999);
+        const done = () => showToast('📋 코드가 복사되었습니다. 다른 기기에서 붙여넣으세요.');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(ta.value).then(done).catch(() => { document.execCommand('copy'); done(); });
+        } else {
+          document.execCommand('copy'); done();
+        }
+      },
+      applyImport() {
+        const code = document.getElementById('sync-import-text').value.trim();
+        if (!code) return alert('붙여넣을 코드를 입력하세요.');
+        let json;
+        try {
+          json = decodeURIComponent(escape(atob(code)));
+          JSON.parse(json);
+        } catch(e) {
+          return alert('코드가 올바르지 않습니다. 정확히 복사했는지 확인해주세요.');
+        }
+        if (!confirm('이 기기의 현재 진행 상황을 지우고 가져온 데이터로 덮어쓸까요?\n(현재 진행 상황은 되돌릴 수 없습니다)')) return;
+        localStorage.setItem(SAVE_KEY, json);
+        location.reload();
       }
     };
 
