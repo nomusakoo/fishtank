@@ -108,6 +108,7 @@
     @keyframes shimmer { to { background-position: -250% center; } }
     .cond-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .num-input { width: 90px; padding: 8px; border-radius: 12px; border: 1px solid var(--border-glass); background: rgba(0,0,0,0.3); color: #fff; }
+    .sync-textarea { width: 100%; margin-top: 6px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid var(--border-glass); border-radius: 10px; padding: 8px; font-size: 11px; font-family: monospace; resize: vertical; }
 
     @keyframes toastPop {
       from { transform: translateY(-10px) scale(0.9); opacity: 0; }
@@ -146,6 +147,7 @@
         <button class="btn-glass" onclick="TankManager.open()">🏠 <span id="tank-switch-label">1번 어항</span></button>
         <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
         <button class="btn-glass" onclick="FishListUI.open()">📋 도감</button>
+        <button class="btn-glass" onclick="SyncUI.open()">📲 기기 동기화</button>
         <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
       </div>
     </header>
@@ -295,6 +297,30 @@
         <div class="cond-text">어항을 선택하면 해당 어항으로 이동해서 관리할 수 있습니다.</div>
         <div id="tank-switch-list"></div>
         <div class="cond-text">새 어항은 인테리어 상점 &gt; 시설 탭에서 구매할 수 있습니다. (다음 어항 가격: ₩<span id="tank-buy-cost">40,000</span>)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEVICE SYNC MODAL (export/import save code) -->
+  <div class="modal-overlay interactive" id="sync-modal" onclick="AquaApp.closeOutside(event, 'sync-modal')">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📲 기기 동기화</h3>
+        <button class="btn-glass" onclick="AquaApp.closeModal('sync-modal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="cond-text">코드를 내보내서 다른 기기(예: PC ↔ 모바일)에 붙여넣으면 진행 상황을 그대로 이어할 수 있습니다. 자동 동기화는 아니며, 옮길 때마다 새로 내보내기/가져오기 해야 합니다.</div>
+        <div>
+          <b>📤 내보내기</b>
+          <textarea id="sync-export-text" readonly rows="4" class="sync-textarea"></textarea>
+          <button class="btn-glass btn-cyan" style="margin-top:6px; width:100%; justify-content:center;" onclick="SyncUI.copyExport()">📋 코드 복사</button>
+        </div>
+        <div style="margin-top:14px;">
+          <b>📥 가져오기</b>
+          <textarea id="sync-import-text" rows="4" placeholder="다른 기기에서 받은 코드를 여기에 붙여넣으세요" class="sync-textarea"></textarea>
+          <button class="btn-glass btn-gold" style="margin-top:6px; width:100%; justify-content:center;" onclick="SyncUI.applyImport()">적용하고 새로고침</button>
+        </div>
+        <div class="cond-text">⚠️ 가져오기를 적용하면 이 기기의 현재 진행 상황은 사라지고 코드의 내용으로 덮어써집니다.</div>
       </div>
     </div>
   </div>
@@ -839,22 +865,27 @@
       }
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     }
-    // Heuristic eye-bump finder: the source meshes have no separate eye submesh, but on nearly
-    // every fish the eye is the most laterally-protruding point somewhere in the head third of the
-    // body (excluding the very tip, which is the mouth/snout). Scanning for the widest |x| vertex
-    // in that band gives a reasonable approximation without needing UVs or manual per-species
-    // coordinates. Assumes left/right bilateral symmetry, which holds for all of these models.
+    // Heuristic eye-bump finder: the source meshes have no separate eye submesh, but on every one
+    // of these fish the eye sits close behind the mouth, just above the body's horizontal midline
+    // (y > 0 in local space, which all 7 models share as roughly the swim-line). A first attempt
+    // scanned a wide 4-42% "head band" for the single widest |x| vertex, but for tapering heads
+    // (guppy/neon/cory) the body torso itself is wider than the eye bump and dominates that scan,
+    // and for cory specifically the barbels below the mouth are wider still. Restricting to a much
+    // narrower band right at the snout (2-20% of body length) and to y > 0 (excludes chin/barbel/
+    // belly vertices) reliably lands on the eye across all 7 species instead. Assumes left/right
+    // bilateral symmetry, which holds for all of these models.
     function estimateEyePosition(geometry) {
       const pos = geometry.attributes.position;
       geometry.computeBoundingBox();
       const bbox = geometry.boundingBox;
       const zSpan = (bbox.max.z - bbox.min.z) || 1;
-      const zMin = bbox.max.z - zSpan * 0.42;
-      const zMax = bbox.max.z - zSpan * 0.04;
+      const zMin = bbox.max.z - zSpan * 0.20;
+      const zMax = bbox.max.z - zSpan * 0.02;
       let best = null, bestAbsX = -Infinity;
       for (let i = 0; i < pos.count; i++) {
         const z = pos.getZ(i);
         if (z < zMin || z > zMax) continue;
+        if (pos.getY(i) < 0) continue;
         const absX = Math.abs(pos.getX(i));
         if (absX > bestAbsX) { bestAbsX = absX; best = { x: absX, y: pos.getY(i), z }; }
       }
@@ -1089,7 +1120,9 @@
 
       update(foods) {
         const qualityPenalty = Math.max(0, (60 - State.water.quality)) / 100; // up to +100% decay when water is very poor
-        this.hunger = Math.max(0, this.hunger - 0.0015 * (1 + qualityPenalty));
+        // Slowed down ~3x (was 0.0015) so fish stay comfortably fed for a good while after eating
+        // instead of needing food again within a minute.
+        this.hunger = Math.max(0, this.hunger - 0.0005 * (1 + qualityPenalty));
         this._updateHungerSprite();
         this.sickSprite.visible = this.sick;
 
@@ -2089,6 +2122,48 @@
     };
 
     /* ==========================================================
+       7c. CROSS-DEVICE SYNC (manual export/import code)
+       ========================================================== */
+    // No backend/account system exists, so "syncing" is a manual step: the full save is packed
+    // into a base64 code the player copies from one device and pastes into another. encodeURIComponent
+    // + escape/unescape around atob/btoa is the standard workaround for base64-encoding text that
+    // contains non-Latin1 characters (Korean tank/fish names, etc.), which btoa can't handle directly.
+    const SyncUI = {
+      open() {
+        AquaApp.saveLocal(); // capture the latest state, not whatever was on disk at last autosave
+        const raw = localStorage.getItem(SAVE_KEY);
+        document.getElementById('sync-export-text').value = raw ? btoa(unescape(encodeURIComponent(raw))) : '';
+        document.getElementById('sync-import-text').value = '';
+        AquaApp.openModal('sync-modal');
+      },
+      copyExport() {
+        const ta = document.getElementById('sync-export-text');
+        if (!ta.value) return alert('내보낼 저장 데이터가 없습니다.');
+        ta.select(); ta.setSelectionRange(0, 999999);
+        const done = () => showToast('📋 코드가 복사되었습니다. 다른 기기에서 붙여넣으세요.');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(ta.value).then(done).catch(() => { document.execCommand('copy'); done(); });
+        } else {
+          document.execCommand('copy'); done();
+        }
+      },
+      applyImport() {
+        const code = document.getElementById('sync-import-text').value.trim();
+        if (!code) return alert('붙여넣을 코드를 입력하세요.');
+        let json;
+        try {
+          json = decodeURIComponent(escape(atob(code)));
+          JSON.parse(json);
+        } catch(e) {
+          return alert('코드가 올바르지 않습니다. 정확히 복사했는지 확인해주세요.');
+        }
+        if (!confirm('이 기기의 현재 진행 상황을 지우고 가져온 데이터로 덮어쓸까요?\n(현재 진행 상황은 되돌릴 수 없습니다)')) return;
+        localStorage.setItem(SAVE_KEY, json);
+        location.reload();
+      }
+    };
+
+    /* ==========================================================
        8. MAIN APP CONTROLLER (Save/Load/UI)
        ========================================================== */
     const AquaApp = {
@@ -2104,6 +2179,11 @@
           State.activeTankIndex = 0;
         }
         if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() })); }
+        // initThree() ran before loadLocal() and set up the default floor/background; re-apply
+        // whatever the save actually specified now that State reflects it (fixes floor/background
+        // resetting to default on every page refresh).
+        applyFloorStyle(State.floorStyle);
+        applyBgStyle(State.bgStyle);
         State.decorations.forEach(d => Builder.spawn(d));
         this.updateUI();
         TankManager.renderSwitcher();
