@@ -193,6 +193,7 @@
         </div>
         <div class="prediction-box">
           종류: <span id="fish-info-species"></span><br>
+          유전 특성: <span id="fish-info-genetics"></span><br>
           나이: <span id="fish-info-age"></span><br>
           상태(컨디션): <span id="fish-info-condition"></span><br>
           출품 시 예상 가격: <span id="fish-info-price"></span>
@@ -220,12 +221,16 @@
         <button class="btn-glass" onclick="AquaApp.closeModal('buy-modal')">✕</button>
       </div>
       <div class="modal-body">
+        <div>
+          <label style="font-size:12px; color:var(--text-muted);">어종 선택</label>
+          <select id="buy-species" class="num-input" style="width:100%; margin-top:4px;" onchange="AquaApp.updateBuyPreview()"></select>
+        </div>
         <div style="display:flex; align-items:center; gap:10px;">
           <label style="flex:1;">구매 수량</label>
           <input type="number" id="buy-qty" class="num-input" min="1" value="1" oninput="AquaApp.updateBuyPreview()">
         </div>
         <div class="prediction-box" id="buy-summary"></div>
-        <button class="btn-glass btn-primary" style="padding:12px; justify-content:center;" onclick="AquaApp.confirmBulkBuy()">구매하기 (마리당 ₩5,000)</button>
+        <button class="btn-glass btn-primary" style="padding:12px; justify-content:center;" onclick="AquaApp.confirmBulkBuy()">구매하기</button>
       </div>
     </div>
   </div>
@@ -234,8 +239,19 @@
     /* ==========================================================
        1. GAME STATE & AUDIO
        ========================================================== */
-    const SAVE_KEY = 'aqua_save_v5';
-    const LEGACY_SAVE_KEY = 'aqua_save_v4';
+    const SAVE_KEY = 'aqua_save_v6';
+    const LEGACY_SAVE_KEY_V5 = 'aqua_save_v5';
+    const LEGACY_SAVE_KEY_V4 = 'aqua_save_v4';
+    // v5 stored fish by a fixed geneKey (BLUE/RED/GREEN/GOLD/MUTANT); v6 replaced that with a
+    // real species + Mendelian genotype. This maps old geneKeys to an equivalent species/genotype
+    // so existing saves keep roughly the same rarity instead of breaking on load.
+    const LEGACY_GENE_TO_SPECIES = {
+      BLUE:   { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
+      RED:    { speciesKey: 'GUPPY', genotype: { color: ['C','C'], pattern: ['M','M'] } },
+      GREEN:  { speciesKey: 'NEON',  genotype: { color: ['C','C'], pattern: ['m','m'] } },
+      GOLD:   { speciesKey: 'ANGEL', genotype: { color: ['c','c'], pattern: ['M','M'] } },
+      MUTANT: { speciesKey: 'BETTA', genotype: { color: ['c','c'], pattern: ['m','m'] } }
+    };
 
     const State = {
       money: 35000, tankCapacity: 8, fishes: [], foods: [], decorations: [],
@@ -426,33 +442,92 @@
     /* ==========================================================
        3. FISH SPECIES, GENETICS & GEOMETRY
        ========================================================== */
-    const GENES = {
-      BLUE: { hex: 0x38bdf8, name: "블루", tier: "Common", val: 5000, species: 'GUPPY' },
-      RED: { hex: 0xf43f5e, name: "레드", tier: "Common", val: 5000, species: 'GUPPY' },
-      GREEN: { hex: 0x10b981, name: "그린", tier: "Rare", val: 18000, species: 'TETRA' },
-      GOLD: { hex: 0xfacc15, name: "골드", tier: "Epic", val: 45000, species: 'ANGEL' },
-      MUTANT: { hex: 0xa855f7, name: "오로라(돌연변이)", tier: "Legendary", val: 150000, species: 'BETTA' }
+    // Body-shape archetypes (procedural geometry proportions), shared across real species below
+    const SPECIES = {
+      GUPPY: { label: '구피형', bodyScale: [0.28, 0.45, 0.9], finLength: 0.5, finHeight: 0.32, tailAngles: [-0.4, -0.15, 0.15, 0.4], dorsal: false },
+      TETRA: { label: '테트라형', bodyScale: [0.22, 0.55, 1.25], finLength: 0.45, finHeight: 0.4, tailAngles: [-0.3, 0.3], dorsal: false },
+      ANGEL: { label: '엔젤형', bodyScale: [0.14, 1.0, 0.8], finLength: 0.4, finHeight: 0.5, tailAngles: [-0.25, 0, 0.25], dorsal: true },
+      BETTA: { label: '베타형', bodyScale: [0.26, 0.5, 1.0], finLength: 0.75, finHeight: 0.55, tailAngles: [-0.5, -0.25, 0, 0.25, 0.5], dorsal: true }
     };
 
-    const SPECIES = {
-      GUPPY: { label: '구피', bodyScale: [0.28, 0.45, 0.9], finLength: 0.5, finHeight: 0.32, tailAngles: [-0.4, -0.15, 0.15, 0.4], dorsal: false },
-      TETRA: { label: '테트라', bodyScale: [0.22, 0.55, 1.25], finLength: 0.45, finHeight: 0.4, tailAngles: [-0.3, 0.3], dorsal: false },
-      ANGEL: { label: '엔젤피시', bodyScale: [0.14, 1.0, 0.8], finLength: 0.4, finHeight: 0.5, tailAngles: [-0.25, 0, 0.25], dorsal: true },
-      BETTA: { label: '베타', bodyScale: [0.26, 0.5, 1.0], finLength: 0.75, finHeight: 0.55, tailAngles: [-0.5, -0.25, 0, 0.25, 0.5], dorsal: true }
+    // Real ornamental fish species catalog, priced roughly like real fry prices (원)
+    const FISH_SPECIES = {
+      GUPPY:  { name: '구피',       basePrice: 2000,  hex: 0x38bdf8, archetype: 'GUPPY' },
+      MOLLY:  { name: '몰리',       basePrice: 3000,  hex: 0xf59e0b, archetype: 'GUPPY' },
+      NEON:   { name: '네온테트라', basePrice: 1500,  hex: 0xef4444, archetype: 'TETRA' },
+      CORY:   { name: '코리도라스', basePrice: 5000,  hex: 0x94a3b8, archetype: 'TETRA' },
+      BETTA:  { name: '베타',       basePrice: 8000,  hex: 0xa855f7, archetype: 'BETTA' },
+      ANGEL:  { name: '엔젤피시',   basePrice: 15000, hex: 0xe2e8f0, archetype: 'ANGEL' },
+      DISCUS: { name: '디스커스',   basePrice: 50000, hex: 0xfb7185, archetype: 'ANGEL' }
     };
+
+    // --- Mendelian genetics: two independent loci (색상 C/c, 무늬 M/m), dominant/recessive ---
+    function randomAllele(dominant, recessive, recessiveChance) {
+      return Math.random() < recessiveChance ? recessive : dominant;
+    }
+    function randomGenotype() {
+      return {
+        color: [randomAllele('C', 'c', 0.22), randomAllele('C', 'c', 0.22)],
+        pattern: [randomAllele('M', 'm', 0.22), randomAllele('M', 'm', 0.22)]
+      };
+    }
+    function phenotype(genotype) {
+      return {
+        colorRecessive: genotype.color[0] === 'c' && genotype.color[1] === 'c',
+        patternRecessive: genotype.pattern[0] === 'm' && genotype.pattern[1] === 'm'
+      };
+    }
+    function deriveRarity(genotype) {
+      const { colorRecessive, patternRecessive } = phenotype(genotype);
+      if (colorRecessive && patternRecessive) return { key: 'Legendary', mult: 25 };
+      if (colorRecessive) return { key: 'Epic', mult: 8 };
+      if (patternRecessive) return { key: 'Rare', mult: 3 };
+      return { key: 'Common', mult: 1 };
+    }
+    function traitLabel(genotype) {
+      const { colorRecessive, patternRecessive } = phenotype(genotype);
+      if (colorRecessive && patternRecessive) return '파스텔 메탈릭';
+      if (colorRecessive) return '파스텔';
+      if (patternRecessive) return '메탈릭';
+      return '일반색';
+    }
+    function orderAlleles(a, b) { return (a === a.toUpperCase()) ? a + b : b + a; }
+    function punnett(pair1, pair2) {
+      const counts = {};
+      pair1.forEach(a => pair2.forEach(b => { const k = orderAlleles(a, b); counts[k] = (counts[k]||0) + 1; }));
+      return counts;
+    }
+    function meiosis(pair) { return pair[Math.random() < 0.5 ? 0 : 1]; }
+    function maybeMutateAllele(allele, dominant, recessive) {
+      return Math.random() < 0.03 ? (allele === dominant ? recessive : dominant) : allele;
+    }
+    function mendelCross(g1, g2) {
+      return {
+        color: [maybeMutateAllele(meiosis(g1.color), 'C', 'c'), maybeMutateAllele(meiosis(g2.color), 'C', 'c')],
+        pattern: [maybeMutateAllele(meiosis(g1.pattern), 'M', 'm'), maybeMutateAllele(meiosis(g2.pattern), 'M', 'm')]
+      };
+    }
+    function lightenColor(hex, amt) {
+      const c = new THREE.Color(hex);
+      c.lerp(new THREE.Color(0xffffff), amt);
+      return c.getHex();
+    }
 
     class Fish {
-      constructor(geneKey, restore) {
+      constructor(speciesKey, restore) {
         restore = restore || {};
         this.id = restore.id || Math.random().toString(36).substr(2,9);
-        this.geneKey = geneKey;
-        const g = GENES[geneKey];
-        const sp = SPECIES[g.species] || SPECIES.GUPPY;
-        this.species = g.species;
-        this.name = g.name + " " + sp.label;
-        this.tier = g.tier; this.value = g.val;
+        this.speciesKey = FISH_SPECIES[speciesKey] ? speciesKey : 'GUPPY';
+        const species = FISH_SPECIES[this.speciesKey];
+        const sp = SPECIES[species.archetype] || SPECIES.GUPPY;
+        this.genotype = restore.genotype || randomGenotype();
+        const rarity = deriveRarity(this.genotype);
+        this.tier = rarity.key;
+        this.value = Math.round(species.basePrice * rarity.mult);
+        this.traitLabel = traitLabel(this.genotype);
+        this.name = species.name + (this.traitLabel === '일반색' ? '' : ` (${this.traitLabel})`);
         this.hunger = typeof restore.hunger === 'number' ? restore.hunger : 100;
-        this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : g.val;
+        this.purchaseCost = typeof restore.purchaseCost === 'number' ? restore.purchaseCost : this.value;
         // Fish restored without a recorded birth time (older saves) are treated as already grown,
         // rather than surprising the player by making all their existing fish babies again.
         this.birthTime = typeof restore.birthTime === 'number' ? restore.birthTime : (Date.now() - MATURITY_MS);
@@ -462,11 +537,13 @@
         this.phase = Math.random()*Math.PI*2;
 
         this.group = new THREE.Group();
+        const { colorRecessive, patternRecessive } = phenotype(this.genotype);
+        const hex = colorRecessive ? lightenColor(species.hex, 0.5) : species.hex;
         const bodyMat = new THREE.MeshStandardMaterial({
-          color: g.hex, metalness: this.tier === 'Legendary'? 0.8:0.2,
-          emissive: this.tier === 'Legendary'? g.hex:0x000000, emissiveIntensity: 0.3
+          color: hex, metalness: patternRecessive ? 0.9 : 0.2,
+          emissive: patternRecessive ? hex : 0x000000, emissiveIntensity: patternRecessive ? 0.4 : 0.3
         });
-        const finMat = new THREE.MeshStandardMaterial({ color: g.hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.6 });
+        const finMat = new THREE.MeshStandardMaterial({ color: hex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.6 });
 
         const [bx, by, bz] = sp.bodyScale;
         const body = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12).scale(bx, by, bz), bodyMat);
@@ -626,11 +703,13 @@
         this.active = slot;
         const list = document.getElementById('breed-select-list');
         list.style.display = 'block';
-        list.innerHTML = State.fishes.filter(f => f !== this.p1 && f !== this.p2).map(f =>
+        const other = slot === 1 ? this.p2 : this.p1;
+        const candidates = State.fishes.filter(f => f !== this.p1 && f !== this.p2 && f.isAdult && (!other || f.speciesKey === other.speciesKey));
+        list.innerHTML = candidates.map(f =>
           `<div class="list-item" style="padding:6px; margin-bottom:4px; cursor:pointer;" onclick="BreedingUI.confirmFish('${f.id}')">
             <span class="tier-${f.tier}">${f.displayName}</span>
           </div>`
-        ).join('') || `<div style="text-align:center; color:#94a3b8;">가능한 개체가 없습니다.</div>`;
+        ).join('') || `<div style="text-align:center; color:#94a3b8;">교배 가능한 성체 개체가 없습니다.<br>(같은 어종의 성체만 교배할 수 있어요)</div>`;
       },
       confirmFish(id) {
         const fish = State.fishes.find(f => f.id === id);
@@ -640,34 +719,62 @@
 
         if(this.p1 && this.p2) {
           document.getElementById('btn-breed').disabled = false;
-          let mutRate = (this.p1.tier==='Epic' || this.p2.tier==='Epic') ? 25 : 10;
+          const colorP = punnett(this.p1.genotype.color, this.p2.genotype.color);
+          const patternP = punnett(this.p1.genotype.pattern, this.p2.genotype.pattern);
+          const fmt = counts => Object.entries(counts).map(([geno,n]) => `${geno} ${Math.round(n/4*100)}%`).join(', ');
           document.getElementById('breed-prediction').innerHTML = `
-            <span style="color:var(--accent-cyan)">유전학 리포트</span><br>
-            유전 형질 계승 확률: ${100 - mutRate}%<br>
-            <span style="color:var(--accent-gold)">돌연변이 발생 확률: ${mutRate}%</span>
+            <span style="color:var(--accent-cyan)">멘델 유전 리포트 (${FISH_SPECIES[this.p1.speciesKey].name})</span><br>
+            색상 유전자(C/c): ${fmt(colorP)}<br>
+            무늬 유전자(M/m): ${fmt(patternP)}<br>
+            <span style="color:var(--accent-gold)">대립유전자당 돌연변이 확률: 3%</span>
           `;
         }
       },
       execute() {
+        if (this.p1.speciesKey !== this.p2.speciesKey) return alert('같은 어종끼리만 교배할 수 있습니다.');
         if(State.money < 3000) return alert("비용이 부족합니다.");
         if(State.fishes.length >= State.tankCapacity) return alert("수용량이 꽉 찼습니다.");
 
         State.money -= 3000; Sound.init(); Sound.magic();
-        let mutRate = (this.p1.tier==='Epic' || this.p2.tier==='Epic') ? 25 : 10;
-        let childGene;
-        if(Math.random()*100 < mutRate) {
-          const r = Math.random();
-          childGene = r<0.2 ? 'MUTANT' : (r<0.5 ? 'GOLD' : 'GREEN');
-        } else {
-          childGene = Math.random()>0.5 ? this.p1.geneKey : this.p2.geneKey;
-        }
-
-        const baby = new Fish(childGene, { purchaseCost: 3000, birthTime: Date.now() });
+        const childGenotype = mendelCross(this.p1.genotype, this.p2.genotype);
+        const baby = new Fish(this.p1.speciesKey, { purchaseCost: 3000, birthTime: Date.now(), genotype: childGenotype });
         baby.pos.copy(this.p1.pos);
         State.fishes.push(baby);
         AquaApp.updateUI(); AquaApp.saveLocal();
-        alert(`🎉 교배 성공!\n[${baby.name}] 탄생!`);
+        alert(`🎉 교배 성공!\n[${baby.name}] 탄생! (${baby.tier} 등급)`);
         AquaApp.closeModal('breeding-modal');
+      }
+    };
+
+    /* ==========================================================
+       4b. NATURAL BREEDING (unattended reproduction)
+       ========================================================== */
+    const NaturalBreeding = {
+      timer: null,
+      start() {
+        if (this.timer) return;
+        this.timer = setInterval(() => this.tick(), 25000);
+      },
+      stop() {
+        clearInterval(this.timer); this.timer = null;
+      },
+      tick() {
+        if (State.fishes.length >= State.tankCapacity) return;
+        const bySpecies = {};
+        State.fishes.forEach(f => {
+          if (f.isAdult && f.hunger > 50) (bySpecies[f.speciesKey] = bySpecies[f.speciesKey] || []).push(f);
+        });
+        const groups = Object.values(bySpecies).filter(arr => arr.length >= 2);
+        if (groups.length === 0) return;
+        if (Math.random() > 0.35) return; // not every tick produces a spawn
+        const group = groups[Math.floor(Math.random()*groups.length)];
+        const shuffled = group.slice().sort(() => Math.random()-0.5);
+        const [p1, p2] = shuffled;
+        const childGenotype = mendelCross(p1.genotype, p2.genotype);
+        const baby = new Fish(p1.speciesKey, { birthTime: Date.now(), genotype: childGenotype });
+        baby.pos.copy(p1.pos);
+        State.fishes.push(baby);
+        AquaApp.updateUI(); AquaApp.saveLocal();
       }
     };
 
@@ -887,8 +994,9 @@
       },
       render(f) {
         document.getElementById('fish-info-name').value = f.displayName;
-        const spLabel = SPECIES[f.species] ? SPECIES[f.species].label : f.species;
-        document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${spLabel}`;
+        const speciesName = FISH_SPECIES[f.speciesKey] ? FISH_SPECIES[f.speciesKey].name : f.speciesKey;
+        document.getElementById('fish-info-species').innerHTML = `<span class="tier-${f.tier}">${f.tier}</span> · ${speciesName}`;
+        document.getElementById('fish-info-genetics').innerHTML = `색상 ${f.genotype.color.join('')} · 무늬 ${f.genotype.pattern.join('')} (${f.traitLabel})`;
         const elapsed = Date.now() - f.birthTime;
         const stage = f.isAdult ? '성체' : '치어';
         const remain = Math.max(0, MATURITY_MS - elapsed);
@@ -1004,7 +1112,7 @@
         f.destroy();
         State.fishes.splice(idx,1);
         State.auction = {
-          fishSnapshot: { geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName },
+          fishSnapshot: { speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, name: f.displayName, tier: f.tier, birthTime: f.birthTime, customName: f.customName },
           currentBid: f.value, bidder: null,
           history: [], endsAt: Date.now() + 60000
         };
@@ -1061,7 +1169,7 @@
           Sound.coin();
           alert(`🎉 경매 낙찰! ₩${a.currentBid.toLocaleString()} 획득!`);
         } else {
-          State.fishes.push(new Fish(a.fishSnapshot.geneKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName }));
+          State.fishes.push(new Fish(a.fishSnapshot.speciesKey, { hunger: a.fishSnapshot.hunger, purchaseCost: a.fishSnapshot.purchaseCost, birthTime: a.fishSnapshot.birthTime, customName: a.fishSnapshot.customName, genotype: a.fishSnapshot.genotype }));
           alert('입찰자가 없어 유찰되었습니다. 물고기가 반환됩니다.');
         }
         State.auction = null;
@@ -1086,10 +1194,11 @@
     const AquaApp = {
       init() {
         initThree(); this.loadLocal();
-        if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('BLUE', { birthTime: Date.now() }), new Fish('RED', { birthTime: Date.now() })); }
+        if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() })); }
         State.decorations.forEach(d => Builder.spawn(d));
         this.updateUI();
         AuctionUI.resume();
+        NaturalBreeding.start();
 
         const animate = () => {
           requestAnimationFrame(animate);
@@ -1139,31 +1248,39 @@
 
       /* Bulk starter fish purchase */
       openBuyModal() {
-        const capacityLeft = State.tankCapacity - State.fishes.length;
-        const maxAffordable = Math.floor(State.money/5000);
-        document.getElementById('buy-qty').value = Math.max(1, Math.min(maxAffordable, capacityLeft) || 1);
+        const sel = document.getElementById('buy-species');
+        if (!sel.options.length) {
+          sel.innerHTML = Object.entries(FISH_SPECIES).map(([key, s]) =>
+            `<option value="${key}">${s.name} (마리당 ₩${s.basePrice.toLocaleString()})</option>`
+          ).join('');
+        }
+        document.getElementById('buy-qty').value = 1;
         this.updateBuyPreview();
         this.openModal('buy-modal');
       },
       updateBuyPreview() {
+        const speciesKey = document.getElementById('buy-species').value;
+        const price = FISH_SPECIES[speciesKey].basePrice;
         const qty = parseInt(document.getElementById('buy-qty').value) || 0;
         const capacityLeft = State.tankCapacity - State.fishes.length;
-        const maxAffordable = Math.floor(State.money/5000);
+        const maxAffordable = Math.floor(State.money/price);
         const actual = Math.max(0, Math.min(qty, capacityLeft, maxAffordable));
         let warn = '';
         if (qty > actual) warn = `<br><span style="color:var(--accent-red)">자금/수용량 한도로 ${actual}마리만 구매 가능합니다.</span>`;
-        document.getElementById('buy-summary').innerHTML = `총 비용: ₩${(actual*5000).toLocaleString()} · 남은 자리: ${capacityLeft}${warn}`;
+        document.getElementById('buy-summary').innerHTML = `마리당 ₩${price.toLocaleString()} · 총 비용: ₩${(actual*price).toLocaleString()} · 남은 자리: ${capacityLeft}${warn}`;
       },
       confirmBulkBuy() {
+        const speciesKey = document.getElementById('buy-species').value;
+        const price = FISH_SPECIES[speciesKey].basePrice;
         const qty = parseInt(document.getElementById('buy-qty').value) || 0;
         const capacityLeft = State.tankCapacity - State.fishes.length;
-        const maxAffordable = Math.floor(State.money/5000);
+        const maxAffordable = Math.floor(State.money/price);
         const actual = Math.max(0, Math.min(qty, capacityLeft, maxAffordable));
         if (actual <= 0) { alert('구매할 수 없습니다. 자금 또는 수조 여유를 확인하세요.'); return; }
         Sound.init(); Sound.coin();
         for (let i=0; i<actual; i++) {
-          State.money -= 5000;
-          State.fishes.push(new Fish(Math.random()>0.5 ? 'BLUE':'RED', { purchaseCost: 5000, birthTime: Date.now() }));
+          State.money -= price;
+          State.fishes.push(new Fish(speciesKey, { purchaseCost: price, birthTime: Date.now() }));
         }
         this.updateUI(); this.saveLocal(); this.closeModal('buy-modal');
       },
@@ -1247,12 +1364,12 @@
         document.getElementById('stat-fish-count').innerText = `${State.fishes.length} / ${State.tankCapacity}`;
       },
 
-      /* Robust Save/Load with v4 -> v5 migration */
+      /* Robust Save/Load with v4 -> v5 -> v6 migration */
       saveLocal() {
         const data = {
-          version: 5,
+          version: 6,
           money: State.money, tankCapacity: State.tankCapacity,
-          fishes: State.fishes.map(f => ({ geneKey: f.geneKey, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName })),
+          fishes: State.fishes.map(f => ({ speciesKey: f.speciesKey, genotype: f.genotype, hunger: f.hunger, purchaseCost: f.purchaseCost, id: f.id, birthTime: f.birthTime, customName: f.customName })),
           decorations: State.decorations,
           floorStyle: State.floorStyle,
           bgStyle: State.bgStyle,
@@ -1266,17 +1383,37 @@
         if (raw) {
           try { data = JSON.parse(raw); } catch(e) { console.error("Save load failed", e); }
         } else {
-          const legacy = localStorage.getItem(LEGACY_SAVE_KEY);
-          if (legacy) {
+          const v5raw = localStorage.getItem(LEGACY_SAVE_KEY_V5);
+          if (v5raw) {
             try {
-              const d = JSON.parse(legacy);
+              const d = JSON.parse(v5raw);
               data = {
                 money: d.money, tankCapacity: d.tankCapacity,
-                fishes: (d.fishes||[]).map(gene => ({ geneKey: gene, hunger: 100, purchaseCost: GENES[gene] ? GENES[gene].val : 5000 })),
-                decorations: (d.decorations||[]).map(dec => ({ ...dec, id: Math.random().toString(36).substr(2,9), surface: 'floor', rotationY: 0 })),
-                floorStyle: 'default', bgStyle: 'default', auction: null
+                fishes: (d.fishes||[]).map(fd => {
+                  const legacy = LEGACY_GENE_TO_SPECIES[fd.geneKey] || LEGACY_GENE_TO_SPECIES.BLUE;
+                  return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: fd.hunger, purchaseCost: fd.purchaseCost, id: fd.id, birthTime: fd.birthTime, customName: fd.customName };
+                }),
+                decorations: d.decorations || [],
+                floorStyle: d.floorStyle || 'default', bgStyle: d.bgStyle || 'default',
+                auction: null // v5 auctions were geneKey-based and don't map cleanly; drop any in-flight listing
               };
-            } catch(e) { console.error("Legacy save load failed", e); }
+            } catch(e) { console.error("v5 save load failed", e); }
+          } else {
+            const v4raw = localStorage.getItem(LEGACY_SAVE_KEY_V4);
+            if (v4raw) {
+              try {
+                const d = JSON.parse(v4raw);
+                data = {
+                  money: d.money, tankCapacity: d.tankCapacity,
+                  fishes: (d.fishes||[]).map(gene => {
+                    const legacy = LEGACY_GENE_TO_SPECIES[gene] || LEGACY_GENE_TO_SPECIES.BLUE;
+                    return { speciesKey: legacy.speciesKey, genotype: legacy.genotype, hunger: 100 };
+                  }),
+                  decorations: (d.decorations||[]).map(dec => ({ ...dec, id: Math.random().toString(36).substr(2,9), surface: 'floor', rotationY: 0 })),
+                  floorStyle: 'default', bgStyle: 'default', auction: null
+                };
+              } catch(e) { console.error("v4 save load failed", e); }
+            }
           }
         }
         if (!data) return;
@@ -1287,7 +1424,7 @@
         State.bgStyle = data.bgStyle || 'default';
         State.auction = data.auction || null;
         if (data.fishes && data.fishes.length>0) {
-          data.fishes.forEach(fd => State.fishes.push(new Fish(fd.geneKey, fd)));
+          data.fishes.forEach(fd => State.fishes.push(new Fish(fd.speciesKey, fd)));
         }
       },
 
@@ -1299,6 +1436,7 @@
       resetGame() {
         clearTimeout(AuctionUI.bidTimeout); AuctionUI.bidTimeout = null;
         if (AuctionUI.tickInterval) { clearInterval(AuctionUI.tickInterval); AuctionUI.tickInterval = null; }
+        NaturalBreeding.stop();
 
         State.fishes.forEach(f => f.destroy());
         State.fishes = [];
@@ -1316,11 +1454,13 @@
         applyBgStyle(State.bgStyle);
 
         localStorage.removeItem(SAVE_KEY);
-        localStorage.removeItem(LEGACY_SAVE_KEY);
+        localStorage.removeItem(LEGACY_SAVE_KEY_V5);
+        localStorage.removeItem(LEGACY_SAVE_KEY_V4);
 
-        State.fishes.push(new Fish('BLUE', { birthTime: Date.now() }), new Fish('RED', { birthTime: Date.now() }));
+        State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() }));
         this.updateUI();
         this.saveLocal();
+        NaturalBreeding.start();
         document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
       }
     };
