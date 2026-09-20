@@ -2,7 +2,8 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#050b14" />
   <title>AquaBreeder Tycoon - Stable Edition</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
@@ -15,7 +16,11 @@
     body, html { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, sans-serif; background: #050b14; color: var(--text-main); }
     #webgl-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
-    .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 16px; }
+    .ui-layer {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
     .interactive { pointer-events: auto; }
 
     /* Header */
@@ -23,6 +28,7 @@
     .stat-badge { background: var(--bg-glass); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); border-radius: 12px; padding: 8px 16px; font-size: 14px; font-weight: 600; display: flex; gap: 8px; }
     .stat-badge span.val { color: var(--accent-cyan); font-weight: 700; }
     .badge-gold span.val { color: var(--accent-gold); }
+    .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
     /* Buttons */
     button.btn-glass { background: var(--bg-glass); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); color: white; padding: 8px 14px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; transition: 0.15s; }
@@ -70,6 +76,19 @@
     .tier-Common { color: #cbd5e1; } .tier-Rare { color: #38bdf8; } .tier-Epic { color: #d8b4fe; } .tier-Legendary { color: #fde047; font-weight: bold; }
     .cond-text { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
     .num-input { width: 90px; padding: 8px; border-radius: 8px; border: 1px solid var(--border-glass); background: rgba(0,0,0,0.3); color: #fff; }
+
+    /* Responsive / mobile tuning */
+    @media (max-width: 600px) {
+      .main-action-btn { padding: 10px 14px; font-size: 13px; border-radius: 12px; }
+      .bottom-bar { gap: 6px; }
+      .stat-badge { padding: 6px 10px; font-size: 12px; }
+      .header-bar button.btn-glass { padding: 6px 10px; font-size: 12px; }
+      .modal-card { max-width: 100%; max-height: 90vh; }
+    }
+    @media (max-width: 400px) {
+      .bottom-bar { flex-wrap: wrap; }
+      .main-action-btn { flex: 1 1 40%; justify-content: center; }
+    }
   </style>
 </head>
 <body>
@@ -82,11 +101,14 @@
         <div class="stat-badge badge-gold"><span>자산:</span><span class="val" id="stat-money">₩ 25,000</span></div>
         <div class="stat-badge"><span>어항:</span><span class="val" id="stat-fish-count">0 / 8</span></div>
       </div>
-      <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
+      <div class="header-actions">
+        <button class="btn-glass btn-gold" onclick="AquaApp.openTradeModal()">⚖️ 거래소</button>
+        <button class="btn-glass" onclick="AquaApp.confirmResetGame()">🔄 새로하기</button>
+      </div>
     </header>
 
     <footer class="bottom-bar interactive" id="bottom-bar">
-      <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🦐 밥 주기</button>
+      <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">🍚 밥 주기</button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.openBuyModal()">➕ 치어 구매</button>
       <button class="btn-glass btn-purple main-action-btn" onclick="BreedingUI.open()">🧪 부화장 (교배)</button>
       <button class="btn-glass btn-green main-action-btn" onclick="AquaApp.openShopModal()">🛒 인테리어 상점</button>
@@ -283,13 +305,33 @@
       scene.background = makeBgTexture(BG_PALETTES[style] || BG_PALETTES.default);
     }
 
+    function updateCameraFraming() {
+      if (!camera) return;
+      const aspect = window.innerWidth / window.innerHeight;
+      camera.aspect = aspect;
+      // Pull the camera back on narrow/portrait (mobile) screens so the whole tank stays in view
+      camera.position.z = aspect < 1 ? 16 + (1 - aspect) * 14 : 16;
+      camera.updateProjectionMatrix();
+    }
+
+    function onWindowResize() {
+      if (!camera || !renderer) return;
+      updateCameraFraming();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    }
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('orientationchange', () => setTimeout(onWindowResize, 250));
+
     function initThree() {
       const canvas = document.getElementById('webgl-canvas');
       scene = new THREE.Scene(); scene.fog = new THREE.FogExp2(0x050b14, 0.02);
       camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
       camera.position.set(0, 2, 16);
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
+      updateCameraFraming();
 
       scene.add(new THREE.AmbientLight(0xcdeafe, 1.2));
       const light = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -300,8 +342,8 @@
       scene.add(shimmer);
       window._shimmerLight = shimmer;
 
-      // Sand / gravel floor
-      sandMesh = new THREE.Mesh(new THREE.PlaneGeometry(15, 10).rotateX(-Math.PI/2), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }));
+      // Sand / gravel floor (sized to exactly fill the tank interior, no overhang past the glass)
+      sandMesh = new THREE.Mesh(new THREE.PlaneGeometry(tankX*2, tankZ*2).rotateX(-Math.PI/2), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }));
       sandMesh.position.y = -tankY; scene.add(sandMesh);
 
       // Glass panels (translucent walls, also used as wall-mount raycast targets)
@@ -1107,6 +1149,39 @@
         if (data.fishes && data.fishes.length>0) {
           data.fishes.forEach(fd => State.fishes.push(new Fish(fd.geneKey, fd)));
         }
+      },
+
+      confirmResetGame() {
+        if (confirm('정말 게임을 처음부터 새로 시작할까요?\n현재 진행 상황(자산, 물고기, 인테리어)이 모두 사라지며 되돌릴 수 없습니다.')) {
+          this.resetGame();
+        }
+      },
+      resetGame() {
+        clearTimeout(AuctionUI.bidTimeout); AuctionUI.bidTimeout = null;
+        if (AuctionUI.tickInterval) { clearInterval(AuctionUI.tickInterval); AuctionUI.tickInterval = null; }
+
+        State.fishes.forEach(f => f.destroy());
+        State.fishes = [];
+        State.foods.forEach(f => scene.remove(f.mesh));
+        State.foods = [];
+        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) scene.remove(m); });
+        State.decorations = [];
+        State.money = 35000;
+        State.tankCapacity = 8;
+        State.floorStyle = 'default';
+        State.bgStyle = 'default';
+        State.auction = null;
+
+        applyFloorStyle(State.floorStyle);
+        applyBgStyle(State.bgStyle);
+
+        localStorage.removeItem(SAVE_KEY);
+        localStorage.removeItem(LEGACY_SAVE_KEY);
+
+        State.fishes.push(new Fish('BLUE'), new Fish('RED'));
+        this.updateUI();
+        this.saveLocal();
+        document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
       }
     };
     window.addEventListener('DOMContentLoaded', () => AquaApp.init());
