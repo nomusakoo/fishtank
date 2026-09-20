@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AquaBreeder Tycoon - Desktop Widget & Cloud Edition</title>
+  <title>AquaBreeder Tycoon - Realistic 3D Species Edition</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     :root {
@@ -41,7 +41,6 @@
       display: block;
     }
 
-    /* GLASS UI CONTAINER */
     .ui-layer {
       position: absolute;
       top: 0;
@@ -60,7 +59,6 @@
       pointer-events: auto;
     }
 
-    /* TOP BAR */
     .header-bar {
       display: flex;
       justify-content: space-between;
@@ -130,7 +128,6 @@
       box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
     }
 
-    /* BOTTOM CONTROLS */
     .bottom-bar {
       display: flex;
       justify-content: center;
@@ -144,7 +141,6 @@
       border-radius: 16px;
     }
 
-    /* FLOATING MODALS */
     .modal-overlay {
       position: absolute;
       top: 0;
@@ -167,7 +163,7 @@
       pointer-events: auto;
     }
     .modal-card {
-      background: rgba(15, 23, 42, 0.92);
+      background: rgba(15, 23, 42, 0.94);
       border: 1px solid var(--border-glass);
       border-radius: 20px;
       width: 100%;
@@ -177,11 +173,6 @@
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
       overflow: hidden;
-      animation: modalSlide 0.3s ease;
-    }
-    @keyframes modalSlide {
-      from { transform: scale(0.95) translateY(10px); }
-      to { transform: scale(1) translateY(0); }
     }
     .modal-header {
       padding: 18px 22px;
@@ -202,7 +193,6 @@
       gap: 16px;
     }
 
-    /* FISH LIST & AUCTION CARDS */
     .fish-card {
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--border-glass);
@@ -226,7 +216,6 @@
     .tier-epic { background: #6d28d9; color: #d8b4fe; }
     .tier-legendary { background: #b45309; color: #fef08a; box-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
 
-    /* AUCTION LIVE BOARD */
     .auction-active-card {
       background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
       border: 1px solid var(--accent-gold);
@@ -255,7 +244,6 @@
       margin-top: 10px;
     }
 
-    /* WIDGET / OFFICE COMPACT MODE */
     body.mode-widget .header-bar,
     body.mode-widget .bottom-bar {
       display: none !important;
@@ -274,7 +262,6 @@
       gap: 10px;
       align-items: center;
       z-index: 50;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
     }
     body.mode-widget .widget-panel {
       display: flex !important;
@@ -283,8 +270,6 @@
       opacity: 0.05 !important;
       pointer-events: none !important;
     }
-
-    /* SYNC BOX */
     .sync-box {
       background: rgba(0, 0, 0, 0.4);
       padding: 12px;
@@ -313,7 +298,6 @@
   <canvas id="webgl-canvas"></canvas>
 
   <div class="ui-layer" id="ui-layer">
-    <!-- Top Header -->
     <header class="header-bar interactive">
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <div class="stat-badge badge-gold">
@@ -321,8 +305,8 @@
           <span class="val" id="stat-money">₩ 25,000</span>
         </div>
         <div class="stat-badge">
-          <span>어종 수:</span>
-          <span class="val" id="stat-fish-count">0 / 6</span>
+          <span>수조 개체:</span>
+          <span class="val" id="stat-fish-count">0 / 8</span>
         </div>
         <div class="stat-badge">
           <span>수질:</span>
@@ -338,85 +322,68 @@
           <span>☁️</span> 모바일 연동
         </button>
         <button class="btn-glass btn-gold" onclick="AquaApp.openAuctionModal()">
-          <span>🏛️</span> 브리더 경매장
+          <span>🏛️</span> 실시간 경매장
         </button>
       </div>
     </header>
 
-    <!-- Bottom Actions -->
     <footer class="bottom-bar interactive">
       <button class="btn-glass btn-primary main-action-btn" onclick="AquaApp.feedFish()">
         <span>🦐</span> 밥 주기 (Feed)
       </button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.cleanTank()">
-        <span>🧼</span> 환수 및 수질 정화
+        <span>🧼</span> 환수 (Clean)
       </button>
       <button class="btn-glass main-action-btn" onclick="AquaApp.buyStarterFish()">
-        <span>➕</span> 치어 입양 (₩5,000)
+        <span>➕</span> 치어 분양 (₩5,000)
       </button>
     </footer>
 
-    <!-- Mini Office Widget Floating Box -->
     <div class="widget-panel interactive">
       <span style="font-size: 13px; font-weight: 700; color: #38bdf8;" id="widget-money">₩ 25,000</span>
       <span style="font-size: 12px; color: #94a3b8;" id="widget-status">수질 98%</span>
       <button class="btn-glass" style="padding: 6px 10px;" onclick="AquaApp.feedFish()">🦐 먹이</button>
       <button class="btn-glass" style="padding: 6px 10px;" onclick="AquaApp.cleanTank()">🧼 환수</button>
-      <button class="btn-glass" style="padding: 6px 10px;" onclick="AquaApp.toggleWidgetMode()">⛶ 복귀</button>
+      <button class="btn-glass" style="padding: 6px 10px;" onclick="AquaApp.toggleWidgetMode()">⛶ 전체화면</button>
     </div>
   </div>
 
-  <!-- MODAL: AUCTION HOUSE -->
+  <!-- AUCTION MODAL -->
   <div class="modal-overlay" id="auction-modal">
     <div class="modal-card interactive">
       <div class="modal-header">
-        <h3>🏛️ 실시간 브리더 경매장</h3>
+        <h3>🏛️ 브리더 경매장</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('auction-modal')">✕</button>
       </div>
       <div class="modal-body">
-        <p style="font-size: 13px; color: var(--text-muted);">
-          멘델 유전학으로 번식된 우수 개체를 경매에 출품하세요. 수집가 AI들이 경쟁하여 실시간 호가를 올립니다.
-        </p>
-        
-        <div id="active-auction-container">
-          <!-- Live Auction Card Rendered Here -->
-        </div>
-
+        <div id="active-auction-container"></div>
         <h4 style="font-size: 14px; margin-top: 6px;">내 어항의 성어 목록 (출품 가능)</h4>
-        <div id="auction-fish-list" style="display: flex; flex-direction: column; gap: 8px;">
-          <!-- Adult Fish List -->
-        </div>
+        <div id="auction-fish-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
       </div>
     </div>
   </div>
 
-  <!-- MODAL: CLOUD SYNC -->
+  <!-- SYNC MODAL -->
   <div class="modal-overlay" id="sync-modal">
     <div class="modal-card interactive">
       <div class="modal-header">
-        <h3>☁️ PC ↔ 모바일 데이터 연동</h3>
+        <h3>☁️ PC ↔ 모바일 동기화</h3>
         <button class="btn-glass" onclick="AquaApp.closeModal('sync-modal')">✕</button>
       </div>
       <div class="modal-body">
-        <p style="font-size: 13px; color: var(--text-muted);">
-          현재 기기의 어항 데이터(보유 어종, 유전자, 자산, 시설)를 내보내거나, 스마트폰/다른 PC에서 코드를 입력해 동기화할 수 있습니다.
-        </p>
-
         <div>
-          <label style="font-size: 12px; font-weight: 600; color: #38bdf8;">현재 내 어항 동기화 코드 (복사하여 다른 기기에 입력):</label>
-          <div class="sync-box" id="sync-export-code" style="margin-top: 6px;">코드 생성 중...</div>
+          <label style="font-size: 12px; font-weight: 600; color: #38bdf8;">내 어항 동기화 코드:</label>
+          <div class="sync-box" id="sync-export-code" style="margin-top: 6px;">생성 중...</div>
           <button class="btn-glass btn-primary" style="margin-top: 8px; width: 100%; justify-content: center;" onclick="AquaApp.copySyncCode()">
-            📋 동기화 코드 복사하기
+            📋 코드 복사
           </button>
         </div>
-
         <hr style="border: 0; border-top: 1px solid var(--border-glass);" />
-
         <div>
-          <label style="font-size: 12px; font-weight: 600; color: var(--accent-gold);">다른 기기 데이터 불러오기:</label>
-          <textarea class="sync-input" id="sync-import-code" placeholder="복사한 동기화 코드를 여기에 붙여넣으세요..." style="margin-top: 6px;"></textarea>
+          <label style="font-size: 12px; font-weight: 600; color: var(--accent-gold);">다른 기기에서 불러오기:</label>
+          <textarea class="sync-input" id="sync-import-code" placeholder="동기화 코드를 붙여넣으세요..." style="margin-top: 6px;"></textarea>
           <button class="btn-glass btn-gold" style="margin-top: 8px; width: 100%; justify-content: center;" onclick="AquaApp.importSyncCode()">
-            🔄 데이터 덮어쓰기 & 동기화
+            🔄 데이터 불러오기
           </button>
         </div>
       </div>
@@ -425,12 +392,12 @@
 
   <script>
     /* ==========================================================
-       1. GAME STATE & AUDIO ENGINE
+       1. GAME STATE & AUDIO
        ========================================================== */
     const State = {
       money: 25000,
-      tankCapacity: 6,
-      cleanliness: 100, // 0 ~ 100
+      tankCapacity: 8,
+      cleanliness: 100,
       fishes: [],
       foods: [],
       activeAuction: null,
@@ -438,7 +405,6 @@
       isStealth: false
     };
 
-    // Synthesized Audio via Web Audio API
     const Sound = {
       ctx: null,
       init() {
@@ -451,14 +417,14 @@
         if (!this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        osc.frequency.setValueAtTime(400, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.12);
+        osc.frequency.setValueAtTime(450, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(900, this.ctx.currentTime + 0.1);
         gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.12);
+        gain.gain.linearRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
         osc.connect(gain);
         gain.connect(this.ctx.destination);
         osc.start();
-        osc.stop(this.ctx.currentTime + 0.13);
+        osc.stop(this.ctx.currentTime + 0.11);
       },
       coin() {
         if (!this.ctx) return;
@@ -477,43 +443,42 @@
     };
 
     /* ==========================================================
-       2. THREE.JS 3D AQUARIUM SETUP
+       2. THREE.JS 3D SCENE & AQUARIUM
        ========================================================== */
     let scene, camera, renderer, tankBounds;
     const canvas = document.getElementById('webgl-canvas');
 
     function initThree() {
       scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(0x0a192f, 0.035);
+      scene.fog = new THREE.FogExp2(0x061826, 0.03);
 
       camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-      camera.position.set(0, 1, 12);
+      camera.position.set(0, 0.5, 13);
 
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
       // Lighting
-      const ambientLight = new THREE.AmbientLight(0xd9f0ff, 0.9);
+      const ambientLight = new THREE.AmbientLight(0xcdeafe, 1.1);
       scene.add(ambientLight);
 
-      const sunlight = new THREE.DirectionalLight(0xa5f3fc, 1.2);
-      sunlight.position.set(0, 8, 4);
-      scene.add(sunlight);
+      const mainLight = new THREE.DirectionalLight(0xe0f2fe, 1.3);
+      mainLight.position.set(2, 9, 4);
+      scene.add(mainLight);
 
-      // Glass Tank Boundaries
-      tankBounds = { x: 5.5, y: 3.2, z: 2.8 };
+      // Tank Bounds
+      tankBounds = { x: 5.8, y: 3.4, z: 2.8 };
 
-      // Tank Outline Visualizer
+      // Tank Edges Frame
       const tankGeo = new THREE.BoxGeometry(tankBounds.x * 2, tankBounds.y * 2, tankBounds.z * 2);
       const edges = new THREE.EdgesGeometry(tankGeo);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
-      const tankFrame = new THREE.LineSegments(edges, lineMat);
-      scene.add(tankFrame);
+      scene.add(new THREE.LineSegments(edges, lineMat));
 
-      // Sand Floor
+      // Tank Sand Substrate
       const sandGeo = new THREE.PlaneGeometry(tankBounds.x * 2, tankBounds.z * 2);
-      const sandMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.9 });
+      const sandMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
       const sand = new THREE.Mesh(sandGeo, sandMat);
       sand.rotation.x = -Math.PI / 2;
       sand.position.y = -tankBounds.y;
@@ -529,129 +494,276 @@
     }
 
     /* ==========================================================
-       3. FISH GENETICS & 3D PROCEDURAL FISH
+       3. 5 DISTINCT SPECIES DEFINITION & REALISTIC PROCEDURAL 3D
        ========================================================== */
-    const GENE_COLORS = [
-      { name: "Cobalt Blue", hex: 0x0ea5e9, rarity: 1 },
-      { name: "Ruby Sunset", hex: 0xf43f5e, rarity: 1 },
-      { name: "Emerald Moss", hex: 0x10b981, rarity: 1 },
-      { name: "Golden Platinum", hex: 0xf59e0b, rarity: 3 },
-      { name: "Cosmic Aurora", hex: 0xa855f7, rarity: 4 },
-      { name: "Hologram Shiny", hex: 0xffffff, rarity: 6 } // Mutated
+    const SPECIES_CONFIG = [
+      {
+        species: "네온 테트라 (Neon Tetra)",
+        type: "TETRA",
+        bodyColor: 0x0284c7, // Neon Cyan
+        stripeColor: 0xef4444, // Neon Red
+        finColor: 0xffffff,
+        rarity: 1,
+        bodyScale: [0.35, 0.45, 1.0], // Slender torpedo
+        speed: 0.05
+      },
+      {
+        species: "팬시 구피 (Fancy Guppy)",
+        type: "GUPPY",
+        bodyColor: 0x10b981, // Emerald Green
+        tailColor: 0xf59e0b, // Amber yellow fan tail
+        finColor: 0xfcd34d,
+        rarity: 1,
+        bodyScale: [0.4, 0.5, 1.1],
+        speed: 0.038
+      },
+      {
+        species: "엔젤피쉬 (Angelfish)",
+        type: "ANGEL",
+        bodyColor: 0xe2e8f0, // Silver Platinum
+        stripeColor: 0x1e293b, // Zebra stripes
+        finColor: 0x94a3b8,
+        rarity: 2,
+        bodyScale: [0.2, 1.3, 1.0], // Tall diamond shape
+        speed: 0.026
+      },
+      {
+        species: "크라운 베타 (Betta Splendens)",
+        type: "BETTA",
+        bodyColor: 0x881337, // Deep Crimson
+        tailColor: 0xec4899, // Magenta long veil
+        finColor: 0xf43f5e,
+        rarity: 3,
+        bodyScale: [0.4, 0.65, 1.2],
+        speed: 0.032
+      },
+      {
+        species: "터콰이즈 디스커스 (Turquoise Discus)",
+        type: "DISCUS",
+        bodyColor: 0x06b6d4, // Vivid turquoise disc
+        tailColor: 0x0891b2,
+        finColor: 0x38bdf8,
+        rarity: 4,
+        bodyScale: [0.25, 1.4, 1.4], // Round flat disc
+        speed: 0.022
+      }
     ];
 
-    class ProceduralFish {
+    class RealisticFish {
       constructor(gene = null) {
         this.id = 'fish_' + Math.random().toString(36).substr(2, 9);
-        this.age = gene ? 0 : 40; // 0 = 치어, 100 = 완전 성어
-        this.hunger = 80; // 0 ~ 100
+        this.age = gene ? 0 : 50;
+        this.hunger = 80;
         this.health = 100;
 
-        // Genetics
-        this.gene = gene || this.generateRandomGene();
+        this.gene = gene || this.generateRandomSpecies();
         this.calculateTier();
 
-        // 3D Mesh
         this.group = new THREE.Group();
-        this.buildMesh();
-        
-        // Motion Physics
+        this.tailPivots = [];
+        this.pectoralFins = [];
+        this.buildRealisticMesh();
+
+        // Spawn position & velocity
         this.pos = new THREE.Vector3(
-          (Math.random() - 0.5) * (tankBounds.x - 1),
-          (Math.random() - 0.5) * (tankBounds.y - 1),
-          (Math.random() - 0.5) * (tankBounds.z - 1)
+          (Math.random() - 0.5) * (tankBounds.x - 1.5),
+          (Math.random() - 0.5) * (tankBounds.y - 1.5),
+          (Math.random() - 0.5) * (tankBounds.z - 1.5)
         );
         this.vel = new THREE.Vector3(
-          (Math.random() - 0.5) * 0.04,
-          (Math.random() - 0.5) * 0.02,
-          (Math.random() - 0.5) * 0.04
+          (Math.random() - 0.5) * this.gene.speed,
+          (Math.random() - 0.5) * (this.gene.speed * 0.5),
+          (Math.random() - 0.5) * this.gene.speed
         );
         this.group.position.copy(this.pos);
         scene.add(this.group);
 
-        this.tailWagTime = Math.random() * 10;
+        this.animTimer = Math.random() * 20;
       }
 
-      generateRandomGene() {
-        const selected = GENE_COLORS[Math.floor(Math.random() * 3)]; // 기본 어종 풀
+      generateRandomSpecies() {
+        // Higher chance for Starter/Common species
+        const roll = Math.random();
+        let chosen;
+        if (roll < 0.4) chosen = SPECIES_CONFIG[0];      // Tetra
+        else if (roll < 0.7) chosen = SPECIES_CONFIG[1]; // Guppy
+        else if (roll < 0.9) chosen = SPECIES_CONFIG[2]; // Angel
+        else chosen = SPECIES_CONFIG[3];                 // Betta
+
         return {
-          primaryColor: selected.hex,
-          name: selected.name,
-          rarityScore: selected.rarity,
-          finStyle: Math.random() > 0.5 ? "Veiltail" : "Standard",
-          scaleShine: 0.4
+          speciesName: chosen.species,
+          type: chosen.type,
+          bodyColor: chosen.bodyColor,
+          tailColor: chosen.tailColor || chosen.bodyColor,
+          stripeColor: chosen.stripeColor || null,
+          finColor: chosen.finColor,
+          rarityScore: chosen.rarity,
+          bodyScale: chosen.bodyScale,
+          speed: chosen.speed,
+          isMutant: false
         };
       }
 
       calculateTier() {
         const score = this.gene.rarityScore;
-        if (score >= 6) {
+        if (this.gene.isMutant || score >= 5) {
           this.tier = "Legendary";
-          this.baseValue = 120000;
+          this.baseValue = 150000;
         } else if (score >= 4) {
           this.tier = "Epic";
-          this.baseValue = 45000;
-        } else if (score >= 3) {
+          this.baseValue = 65000;
+        } else if (score >= 2) {
           this.tier = "Rare";
-          this.baseValue = 18000;
+          this.baseValue = 22000;
         } else {
           this.tier = "Common";
-          this.baseValue = 5000;
+          this.baseValue = 6000;
         }
       }
 
-      buildMesh() {
-        // Clear previous parts
+      buildRealisticMesh() {
         while (this.group.children.length > 0) {
           this.group.remove(this.group.children[0]);
         }
+        this.tailPivots = [];
+        this.pectoralFins = [];
 
-        const scaleMultiplier = THREE.MathUtils.lerp(0.4, 1.0, this.age / 100);
+        const scaleMultiplier = THREE.MathUtils.lerp(0.35, 0.85, this.age / 100);
+        const [sx, sy, sz] = this.gene.bodyScale;
 
-        // Body
-        const bodyGeo = new THREE.ConeGeometry(0.32, 0.9, 16);
-        bodyGeo.rotateX(Math.PI / 2);
+        // 1. STREAMLINED FISH BODY (Sphere stretched into a realistic fish fuselage)
+        const bodyGeo = new THREE.SphereGeometry(0.5, 20, 16);
+        bodyGeo.scale(sx, sy, sz);
+
         const bodyMat = new THREE.MeshStandardMaterial({
-          color: this.gene.primaryColor,
-          metalness: this.gene.rarityScore >= 4 ? 0.8 : 0.2,
-          roughness: 0.3
+          color: this.gene.bodyColor,
+          metalness: this.gene.isMutant ? 0.85 : 0.3,
+          roughness: 0.25
         });
-        this.body = new THREE.Mesh(bodyGeo, bodyMat);
-        this.group.add(this.body);
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        this.group.add(body);
 
-        // Tail Fin
-        const tailGeo = new THREE.BufferGeometry();
-        const vertices = new Float32Array([
-          0, 0, 0,
-          -0.2, 0.35, -0.6,
-          -0.2, -0.35, -0.6
-        ]);
-        tailGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        const tailMat = new THREE.MeshStandardMaterial({
-          color: this.gene.primaryColor,
+        // 2. FISH EYES (Left & Right)
+        const eyeGeo = new THREE.SphereGeometry(0.08, 12, 12);
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0x0a0a0a });
+        const corneaGeo = new THREE.SphereGeometry(0.03, 8, 8);
+        const corneaMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+        const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+        eyeR.position.set(sx * 0.42, sy * 0.15, sz * 0.35);
+        const irisR = new THREE.Mesh(corneaGeo, corneaMat);
+        irisR.position.set(0.04, 0.02, 0.04);
+        eyeR.add(irisR);
+        this.group.add(eyeR);
+
+        const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+        eyeL.position.set(-sx * 0.42, sy * 0.15, sz * 0.35);
+        const irisL = new THREE.Mesh(corneaGeo, corneaMat);
+        irisL.position.set(-0.04, 0.02, 0.04);
+        eyeL.add(irisL);
+        this.group.add(eyeL);
+
+        // 3. DORSAL FIN (Top)
+        const dorsalGeo = new THREE.BufferGeometry();
+        let dVerts;
+        if (this.gene.type === "ANGEL") {
+          // Extra high dorsal fin for Angelfish
+          dVerts = new Float32Array([
+            0, sy * 0.4, 0.1,
+            0, sy * 1.8, -0.4,
+            0, sy * 0.3, -0.5
+          ]);
+        } else {
+          dVerts = new Float32Array([
+            0, sy * 0.4, 0.2,
+            0, sy * 1.1, -0.3,
+            0, sy * 0.3, -0.6
+          ]);
+        }
+        dorsalGeo.setAttribute('position', new THREE.BufferAttribute(dVerts, 3));
+        const finMat = new THREE.MeshStandardMaterial({
+          color: this.gene.finColor,
           side: THREE.DoubleSide,
           transparent: true,
-          opacity: 0.85
+          opacity: 0.85,
+          roughness: 0.3
         });
-        this.tail = new THREE.Mesh(tailGeo, tailMat);
-        this.tail.position.set(0, 0, -0.45);
-        this.group.add(this.tail);
+        const dorsal = new THREE.Mesh(dorsalGeo, finMat);
+        this.group.add(dorsal);
+
+        // 4. VENTRAL / ANAL FIN (Bottom)
+        const ventralGeo = new THREE.BufferGeometry();
+        let vVerts;
+        if (this.gene.type === "ANGEL") {
+          // Deep descending pectoral feelers
+          vVerts = new Float32Array([
+            0, -sy * 0.3, 0.1,
+            0, -sy * 1.9, -0.2,
+            0, -sy * 0.4, -0.5
+          ]);
+        } else {
+          vVerts = new Float32Array([
+            0, -sy * 0.3, 0.1,
+            0, -sy * 0.9, -0.3,
+            0, -sy * 0.3, -0.6
+          ]);
+        }
+        ventralGeo.setAttribute('position', new THREE.BufferAttribute(vVerts, 3));
+        const ventral = new THREE.Mesh(ventralGeo, finMat);
+        this.group.add(ventral);
+
+        // 5. TAIL FIN ASSEMBLY (Tail Peduncle + Fan Tail with Wiggle Pivot)
+        const tailPivot = new THREE.Group();
+        tailPivot.position.set(0, 0, -sz * 0.45); // Anchor to rear
+
+        const tailGeo = new THREE.BufferGeometry();
+        let tVerts;
+        if (this.gene.type === "GUPPY" || this.gene.type === "BETTA") {
+          // Large undulating fan tail
+          tVerts = new Float32Array([
+            0, 0, 0,
+            0, sy * 1.3, -sz * 1.1,
+            0, -sy * 1.3, -sz * 1.1
+          ]);
+        } else {
+          // Classic Forked/Delta tail
+          tVerts = new Float32Array([
+            0, 0, 0,
+            0, sy * 0.8, -sz * 0.7,
+            0, 0, -sz * 0.45,
+            0, 0, 0,
+            0, 0, -sz * 0.45,
+            0, -sy * 0.8, -sz * 0.7
+          ]);
+        }
+        tailGeo.setAttribute('position', new THREE.BufferAttribute(tVerts, 3));
+        const tailMat = new THREE.MeshStandardMaterial({
+          color: this.gene.tailColor,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.9,
+          roughness: 0.3
+        });
+        const tailMesh = new THREE.Mesh(tailGeo, tailMat);
+        tailPivot.add(tailMesh);
+
+        this.group.add(tailPivot);
+        this.tailPivots.push(tailPivot);
 
         this.group.scale.setScalar(scaleMultiplier);
       }
 
       update(delta) {
-        // Growth & Aging
+        // Growth
         if (this.age < 100) {
           this.age += delta * 1.5;
-          const currentScale = THREE.MathUtils.lerp(0.4, 1.0, this.age / 100);
+          const currentScale = THREE.MathUtils.lerp(0.35, 0.85, this.age / 100);
           this.group.scale.setScalar(currentScale);
         }
 
-        // Hunger decay
-        this.hunger = Math.max(0, this.hunger - delta * 0.8);
+        this.hunger = Math.max(0, this.hunger - delta * 0.7);
 
-        // Behavior: Feed if hungry & food exists
+        // Food finding
         let target = null;
         if (this.hunger < 75 && State.foods.length > 0) {
           target = State.foods[0].pos;
@@ -659,45 +771,47 @@
 
         if (target) {
           const dir = new THREE.Vector3().subVectors(target, this.pos).normalize();
-          this.vel.lerp(dir.multiplyScalar(0.06), 0.05);
+          this.vel.lerp(dir.multiplyScalar(this.gene.speed * 1.5), 0.06);
 
-          // Eat food
-          if (this.pos.distanceTo(target) < 0.4) {
+          if (this.pos.distanceTo(target) < 0.45) {
             this.hunger = Math.min(100, this.hunger + 35);
             AquaApp.consumeFood(State.foods[0]);
             Sound.bubble();
           }
         } else {
-          // Wander physics
-          if (Math.random() < 0.03) {
+          // Cruising
+          if (Math.random() < 0.025) {
             this.vel.add(new THREE.Vector3(
               (Math.random() - 0.5) * 0.015,
               (Math.random() - 0.5) * 0.008,
               (Math.random() - 0.5) * 0.015
             ));
-            this.vel.clampLength(0.015, 0.045);
+            this.vel.clampLength(this.gene.speed * 0.5, this.gene.speed * 1.3);
           }
         }
 
-        // Boundary reflection
-        const limitX = tankBounds.x - 0.6;
-        const limitY = tankBounds.y - 0.6;
-        const limitZ = tankBounds.z - 0.6;
+        // Boundary bounce
+        const limX = tankBounds.x - 0.7;
+        const limY = tankBounds.y - 0.6;
+        const limZ = tankBounds.z - 0.7;
 
-        if (Math.abs(this.pos.x + this.vel.x) > limitX) this.vel.x *= -1;
-        if (Math.abs(this.pos.y + this.vel.y) > limitY) this.vel.y *= -1;
-        if (Math.abs(this.pos.z + this.vel.z) > limitZ) this.vel.z *= -1;
+        if (Math.abs(this.pos.x + this.vel.x) > limX) this.vel.x *= -1;
+        if (Math.abs(this.pos.y + this.vel.y) > limY) this.vel.y *= -1;
+        if (Math.abs(this.pos.z + this.vel.z) > limZ) this.vel.z *= -1;
 
         this.pos.add(this.vel);
         this.group.position.copy(this.pos);
 
-        // Heading rotation
+        // Look direction (heading forward)
         const forward = this.vel.clone().normalize();
         this.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), forward);
 
-        // Tail Wag
-        this.tailWagTime += delta * 12;
-        this.tail.rotation.y = Math.sin(this.tailWagTime) * 0.35;
+        // Realistic Tail Sinuous Wiggle (Sine wave driven)
+        this.animTimer += delta * (this.vel.length() * 260 + 4);
+        const wiggle = Math.sin(this.animTimer) * 0.4;
+        this.tailPivots.forEach(p => {
+          p.rotation.y = wiggle;
+        });
       }
 
       destroy() {
@@ -706,50 +820,53 @@
     }
 
     /* ==========================================================
-       4. BREEDING (MENDELIAN GENETICS & MUTATION)
+       4. ADVANCED BREEDING & MORPH HYBRIDIZATION
        ========================================================== */
     function attemptBreeding() {
-      // Conditions: Clean water > 75%, Space available, 2+ adult fish with high satiety
       if (State.cleanliness < 75 || State.fishes.length >= State.tankCapacity) return;
 
       const adults = State.fishes.filter(f => f.age >= 90 && f.hunger >= 60);
       if (adults.length < 2) return;
 
-      // Random pair
       const p1 = adults[Math.floor(Math.random() * adults.length)];
       let p2 = adults[Math.floor(Math.random() * adults.length)];
       if (p1 === p2) return;
 
-      // Mutation Roll (7% Chance)
       let childGene;
-      const isMutation = Math.random() < 0.07;
+      const isMutation = Math.random() < 0.08; // 8% 돌연변이
 
       if (isMutation) {
-        // High rarity mutant
-        const mutantList = GENE_COLORS.filter(g => g.rarity >= 4);
-        const chosen = mutantList[Math.floor(Math.random() * mutantList.length)];
+        // Ultra Rare Radiant Aurora Discus/Betta
         childGene = {
-          primaryColor: chosen.hex,
-          name: "✨ " + chosen.name + " (돌연변이)",
-          rarityScore: chosen.rarity + 1,
-          finStyle: "Veiltail",
-          scaleShine: 0.9
+          speciesName: "✨ 오로라 홀로그램 (돌연변이)",
+          type: "DISCUS",
+          bodyColor: 0xffffff,
+          tailColor: 0xa855f7,
+          finColor: 0x38bdf8,
+          rarityScore: 6,
+          bodyScale: [0.28, 1.4, 1.3],
+          speed: 0.03,
+          isMutant: true
         };
       } else {
-        // Mendelian Parent Trait Inheritance
-        const inheritP1 = Math.random() > 0.5;
-        const parent = inheritP1 ? p1 : p2;
+        // Cross-breed: Inherits traits from both parents
+        const primaryParent = Math.random() > 0.5 ? p1 : p2;
+        const secondaryParent = (primaryParent === p1) ? p2 : p1;
+
         childGene = {
-          primaryColor: parent.gene.primaryColor,
-          name: parent.gene.name,
+          speciesName: primaryParent.gene.speciesName,
+          type: primaryParent.gene.type,
+          bodyColor: primaryParent.gene.bodyColor,
+          tailColor: secondaryParent.gene.tailColor, // Mixed color inheritance!
+          finColor: primaryParent.gene.finColor,
           rarityScore: Math.max(p1.gene.rarityScore, p2.gene.rarityScore),
-          finStyle: Math.random() > 0.5 ? p1.gene.finStyle : p2.gene.finStyle,
-          scaleShine: parent.gene.scaleShine
+          bodyScale: primaryParent.gene.bodyScale,
+          speed: primaryParent.gene.speed,
+          isMutant: false
         };
       }
 
-      // Spawn Fry
-      const baby = new ProceduralFish(childGene);
+      const baby = new RealisticFish(childGene);
       baby.pos.copy(p1.pos);
       State.fishes.push(baby);
 
@@ -758,11 +875,10 @@
     }
 
     /* ==========================================================
-       5. REAL-TIME BIDDING & AUCTION HOUSE (NPC SIMULATION)
+       5. AUCTION SIMULATION
        ========================================================== */
     const AuctionEngine = {
       startAuction(fish) {
-        // Remove from tank
         const index = State.fishes.indexOf(fish);
         if (index > -1) {
           fish.destroy();
@@ -773,9 +889,9 @@
         State.activeAuction = {
           fish: fish,
           currentBid: startPrice,
-          highestBidder: "경매 시작가",
-          timeLeft: 15, // seconds
-          logs: [`[경매 오픈] ${fish.gene.name} (${fish.tier}) 출품. 시작가: ₩${startPrice.toLocaleString()}`]
+          highestBidder: "시작가 제시",
+          timeLeft: 15,
+          logs: [`[경매 시작] ${fish.gene.speciesName} (${fish.tier}) 출품. 시작가: ₩${startPrice.toLocaleString()}`]
         };
 
         AquaApp.renderAuctionView();
@@ -787,24 +903,22 @@
         const auc = State.activeAuction;
         auc.timeLeft -= delta;
 
-        // NPC Bot Bidding Algorithm based on fish tier
-        if (Math.random() < 0.22 && auc.timeLeft > 1.5) {
-          const botNames = ["수족관VIP_민우", "네오_아쿠아리스트", "물멍장인87", "골드피쉬_콜렉터", "도쿄_스케이퍼"];
-          const bot = botNames[Math.floor(Math.random() * botNames.length)];
-          const bidIncrement = Math.round((auc.fish.baseValue * (0.15 + Math.random() * 0.25)) / 1000) * 1000;
-          
-          auc.currentBid += bidIncrement;
+        if (Math.random() < 0.23 && auc.timeLeft > 1.2) {
+          const bidders = ["도쿄_아쿠아스케이퍼", "네오_브리더99", "수족관_갤러리대표", "열대어매니아_현수", "강남_수경인테리어"];
+          const bot = bidders[Math.floor(Math.random() * bidders.length)];
+          const bidIncr = Math.round((auc.fish.baseValue * (0.18 + Math.random() * 0.22)) / 1000) * 1000;
+
+          auc.currentBid += bidIncr;
           auc.highestBidder = bot;
-          auc.logs.unshift(`[입찰] ${bot}님이 ₩${auc.currentBid.toLocaleString()} 호가를 제시했습니다.`);
+          auc.logs.unshift(`[호가 갱신] ${bot}님이 ₩${auc.currentBid.toLocaleString()} 제시!`);
           Sound.bubble();
           AquaApp.renderAuctionView();
         }
 
-        // Finalize Auction
         if (auc.timeLeft <= 0) {
           State.money += auc.currentBid;
           Sound.coin();
-          alert(`🎉 경매 낙찰 완료!\n${auc.highestBidder}님에게 ₩${auc.currentBid.toLocaleString()}에 최종 낙찰되었습니다.`);
+          alert(`🎉 경매 낙찰!\n${auc.highestBidder}님에게 ₩${auc.currentBid.toLocaleString()}에 최종 매각되었습니다.`);
           State.activeAuction = null;
           AquaApp.renderAuctionView();
           AquaApp.updateUI();
@@ -813,20 +927,20 @@
     };
 
     /* ==========================================================
-       6. APPLICATION LOGIC & CLOUD SYNC
+       6. APP CONTROLLER
        ========================================================== */
     const AquaApp = {
       init() {
         initThree();
         this.loadLocal();
         if (State.fishes.length === 0) {
-          for (let i = 0; i < 3; i++) {
-            State.fishes.push(new ProceduralFish());
-          }
+          // Start with 3 distinct fish
+          State.fishes.push(new RealisticFish(SPECIES_CONFIG[0])); // Tetra
+          State.fishes.push(new RealisticFish(SPECIES_CONFIG[1])); // Guppy
+          State.fishes.push(new RealisticFish(SPECIES_CONFIG[2])); // Angel
         }
         this.updateUI();
 
-        // Boss / Stealth Key Binding (ESC)
         window.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') {
             State.isStealth = !State.isStealth;
@@ -834,7 +948,6 @@
           }
         });
 
-        // Loop
         let lastTime = performance.now();
         const animate = () => {
           requestAnimationFrame(animate);
@@ -842,10 +955,9 @@
           const delta = (now - lastTime) / 1000;
           lastTime = now;
 
-          // Fish Simulation
           State.fishes.forEach(f => f.update(delta));
 
-          // Foods falling
+          // Food physics
           for (let i = State.foods.length - 1; i >= 0; i--) {
             const food = State.foods[i];
             food.pos.y -= delta * 0.6;
@@ -856,22 +968,16 @@
             }
           }
 
-          // Natural breeding ticker (Every ~15 seconds test)
           if (Math.random() < delta * 0.08) {
             attemptBreeding();
           }
 
-          // Cleanliness decay
-          State.cleanliness = Math.max(10, State.cleanliness - delta * 0.15);
-
-          // Auction Tick
+          State.cleanliness = Math.max(10, State.cleanliness - delta * 0.12);
           AuctionEngine.tick(delta);
-
           renderer.render(scene, camera);
         };
         animate();
 
-        // Auto Save interval (every 10s)
         setInterval(() => this.saveLocal(), 10000);
       },
 
@@ -883,9 +989,9 @@
           const foodMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
           const mesh = new THREE.Mesh(foodGeo, foodMat);
           const pos = new THREE.Vector3(
-            (Math.random() - 0.5) * (tankBounds.x - 1),
+            (Math.random() - 0.5) * (tankBounds.x - 1.2),
             tankBounds.y - 0.2,
-            (Math.random() - 0.5) * (tankBounds.z - 1)
+            (Math.random() - 0.5) * (tankBounds.z - 1.2)
           );
           mesh.position.copy(pos);
           scene.add(mesh);
@@ -914,24 +1020,19 @@
           return;
         }
         if (State.fishes.length >= State.tankCapacity) {
-          alert("수조 용량이 가득 찼습니다!");
+          alert("수조가 가득 찼습니다!");
           return;
         }
         Sound.init();
         Sound.coin();
         State.money -= 5000;
-        State.fishes.push(new ProceduralFish());
+        State.fishes.push(new RealisticFish());
         this.updateUI();
       },
 
       toggleWidgetMode() {
         State.isWidgetMode = !State.isWidgetMode;
         document.body.classList.toggle('mode-widget', State.isWidgetMode);
-
-        // Document Picture-in-Picture API Trigger (if supported by Chrome/Edge)
-        if (window.documentPictureInPicture && State.isWidgetMode) {
-          console.log("Document PiP available for true desktop detachment.");
-        }
       },
 
       openAuctionModal() {
@@ -943,13 +1044,12 @@
         const container = document.getElementById('active-auction-container');
         const list = document.getElementById('auction-fish-list');
 
-        // Render Active Auction
         if (State.activeAuction) {
           const auc = State.activeAuction;
           container.innerHTML = `
             <div class="auction-active-card">
               <span class="bid-timer">남은 시간: ${Math.max(0, Math.ceil(auc.timeLeft))}초</span>
-              <div style="font-size: 15px; font-weight: 700; color: #f59e0b;">${auc.fish.gene.name}</div>
+              <div style="font-size: 15px; font-weight: 700; color: #f59e0b;">${auc.fish.gene.speciesName}</div>
               <div style="font-size: 12px; color: #94a3b8;">등급: ${auc.fish.tier} | 최고 입찰자: ${auc.highestBidder}</div>
               <div style="font-size: 20px; font-weight: 800; color: #38bdf8; margin: 8px 0;">
                 현재 호가: ₩ ${auc.currentBid.toLocaleString()}
@@ -960,10 +1060,9 @@
             </div>
           `;
         } else {
-          container.innerHTML = `<div style="padding: 14px; text-align: center; color: #64748b; font-size: 13px;">현재 진행 중인 경매가 없습니다. 아래에서 성어를 출품하세요.</div>`;
+          container.innerHTML = `<div style="padding: 14px; text-align: center; color: #64748b; font-size: 13px;">진행 중인 경매가 없습니다. 아래에서 성어를 출품하세요.</div>`;
         }
 
-        // Render adult fish available
         const adults = State.fishes.filter(f => f.age >= 90);
         list.innerHTML = '';
         if (adults.length === 0) {
@@ -976,10 +1075,10 @@
           div.className = 'fish-card';
           div.innerHTML = `
             <div>
-              <div style="font-weight: 700; font-size: 14px;">${f.gene.name}</div>
+              <div style="font-weight: 700; font-size: 14px;">${f.gene.speciesName}</div>
               <div style="display: flex; gap: 6px; margin-top: 4px;">
                 <span class="fish-badge-tier tier-${f.tier.toLowerCase()}">${f.tier}</span>
-                <span style="font-size: 12px; color: #94a3b8;">평가액: ₩${f.baseValue.toLocaleString()}</span>
+                <span style="font-size: 12px; color: #94a3b8;">감정가: ₩${f.baseValue.toLocaleString()}</span>
               </div>
             </div>
             <button class="btn-glass btn-gold" ${State.activeAuction ? 'disabled' : ''} onclick="AquaApp.submitToAuction('${f.id}')">
@@ -1007,7 +1106,7 @@
       copySyncCode() {
         const text = document.getElementById('sync-export-code').innerText;
         navigator.clipboard.writeText(text).then(() => {
-          alert("동기화 코드가 클립보드에 복사되었습니다!\n다른 기기나 모바일에서 붙여넣으세요.");
+          alert("동기화 코드가 클립보드에 복사되었습니다!");
         });
       },
 
@@ -1017,7 +1116,7 @@
         try {
           const decoded = decodeURIComponent(atob(input));
           this.deserializeState(decoded);
-          alert("데이터 동기화 완료! 수조가 성공적으로 복원되었습니다.");
+          alert("수조 데이터가 복원되었습니다!");
           this.closeModal('sync-modal');
         } catch (e) {
           alert("유효하지 않은 동기화 코드입니다.");
@@ -1053,17 +1152,15 @@
       deserializeState(jsonString) {
         const data = JSON.parse(jsonString);
         State.money = data.money || 25000;
-        State.tankCapacity = data.tankCapacity || 6;
+        State.tankCapacity = data.tankCapacity || 8;
         State.cleanliness = data.cleanliness || 100;
 
-        // Clear existing 3D fishes
         State.fishes.forEach(f => f.destroy());
         State.fishes = [];
 
-        // Reconstruct
         if (data.fishes) {
           data.fishes.forEach(fData => {
-            const fish = new ProceduralFish(fData.gene);
+            const fish = new RealisticFish(fData.gene);
             fish.age = fData.age;
             fish.hunger = fData.hunger;
             State.fishes.push(fish);
@@ -1074,16 +1171,16 @@
       },
 
       saveLocal() {
-        localStorage.setItem('aqua_save_v1', this.serializeState());
+        localStorage.setItem('aqua_save_v2', this.serializeState());
       },
 
       loadLocal() {
-        const raw = localStorage.getItem('aqua_save_v1');
+        const raw = localStorage.getItem('aqua_save_v2');
         if (raw) {
           try {
             this.deserializeState(raw);
           } catch (e) {
-            console.error("Local save load failed", e);
+            console.error("Save load failed", e);
           }
         }
       }
