@@ -206,6 +206,7 @@
       </div>
       <div class="modal-body">
         <button class="btn-glass btn-purple" onclick="DecoEditor.toggle()">🛠 배치 편집 모드 (이동/제거)</button>
+        <div class="tab-header" id="shop-tab-header"></div>
         <div id="shop-list"></div>
       </div>
     </div>
@@ -1111,7 +1112,11 @@
         // Degradation is intentionally gentle (not realistic-speed) so players aren't forced
         // to water-change constantly; waste still matters, it just takes longer to add up.
         const wasteLoad = State.waste.length;
-        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.25 - 0.1));
+        const decoBonus = State.decorations.reduce((sum, d) => {
+          const item = SHOP_DB.find(i => i.id === d.type);
+          return sum + (item && item.waterEffect ? item.waterEffect : 0);
+        }, 0);
+        State.water.quality = Math.max(0, Math.min(100, State.water.quality - wasteLoad*0.25 - 0.1 + decoBonus));
         State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
 
         State.fishes.forEach(f => {
@@ -1137,6 +1142,13 @@
       },
       interactionTick() {
         const fishes = State.fishes;
+        // Hiding spots (rocks, castles, driftwood) measurably calm real fish; each one placed
+        // chips away at the fight/predation chance this tick, capped so it can't reach zero.
+        const hidingSpots = State.decorations.filter(d => {
+          const item = SHOP_DB.find(i => i.id === d.type);
+          return item && item.fishEffect === 'hiding';
+        }).length;
+        const stressFactor = Math.max(0.4, 1 - hidingSpots*0.15);
         for (let i = 0; i < fishes.length; i++) {
           for (let j = i+1; j < fishes.length; j++) {
             const a = fishes[i], b = fishes[j];
@@ -1150,7 +1162,7 @@
             let predator = null, prey = null;
             if (ta.size - tb.size >= 2 && ta.aggression >= 4) { predator = a; prey = b; }
             else if (tb.size - ta.size >= 2 && tb.aggression >= 4) { predator = b; prey = a; }
-            if (predator && prey && Math.random() < 0.15) {
+            if (predator && prey && Math.random() < 0.15*stressFactor) {
               showToast(`🐟 ${predator.displayName}이(가) ${prey.displayName}을(를) 잡아먹었습니다!`);
               prey.destroy();
               fishes.splice(fishes.indexOf(prey), 1);
@@ -1158,7 +1170,7 @@
               AquaApp.updateUI(); AquaApp.saveLocal();
               return; // array mutated; resume next tick
             }
-            if (ta.aggression >= 5 && tb.aggression >= 5 && Math.abs(ta.size - tb.size) < 2 && Math.random() < 0.1) {
+            if (ta.aggression >= 5 && tb.aggression >= 5 && Math.abs(ta.size - tb.size) < 2 && Math.random() < 0.1*stressFactor) {
               showToast(`⚔️ ${a.displayName}와(과) ${b.displayName}이(가) 다퉜습니다!`);
               a.hunger = Math.max(0, a.hunger - 15);
               b.hunger = Math.max(0, b.hunger - 15);
@@ -1199,20 +1211,28 @@
     /* ==========================================================
        5. SHOP & BUILD SYSTEM
        ========================================================== */
+    // waterEffect: added to water quality every WaterSystem tick while placed (real aquarium plants
+    // and aeration measurably help; driftwood tannins actually lower pH/quality a touch).
+    // fishEffect 'hiding': real hiding spots reduce stress, so they lower the fight/predation chance.
     const SHOP_DB = [
-      { id: 'plant', name: '나나 수초', price: 2000, type: 'deco', surface: 'floor' },
-      { id: 'rock', name: '청룡석', price: 5000, type: 'deco', surface: 'floor' },
-      { id: 'driftwood', name: '유목', price: 7000, type: 'deco', surface: 'floor' },
-      { id: 'coral', name: '산호 군락', price: 9000, type: 'deco', surface: 'floor' },
-      { id: 'castle', name: '수중 성', price: 15000, type: 'deco', surface: 'floor' },
-      { id: 'bubbler', name: '버블러', price: 4000, type: 'deco', surface: 'floor' },
-      { id: 'wallplant', name: '벽면 이끼', price: 3000, type: 'deco', surface: 'wall' },
-      { id: 'hanging', name: '부유 장식볼', price: 3500, type: 'deco', surface: 'floating' },
-      { id: 'floor-white', name: '흰 모래 바닥재', price: 6000, type: 'floor-style', styleId: 'white' },
-      { id: 'floor-black', name: '블랙 사막 바닥재', price: 6000, type: 'floor-style', styleId: 'black' },
-      { id: 'bg-reef', name: '산호초 배경', price: 8000, type: 'bg-style', styleId: 'reef' },
-      { id: 'bg-night', name: '심해 야간 배경', price: 8000, type: 'bg-style', styleId: 'night' },
-      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up' }
+      { id: 'plant', name: '나나 수초', price: 2000, type: 'deco', surface: 'floor', category: 'deco', waterEffect: 0.02, effectDesc: '수질 개선 (+)' },
+      { id: 'rock', name: '청룡석', price: 5000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', effectDesc: '은신처 (스트레스 감소)' },
+      { id: 'driftwood', name: '유목', price: 7000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', waterEffect: -0.01, effectDesc: '은신처 · 수질 소폭 저하 (탄닌)' },
+      { id: 'coral', name: '산호 군락', price: 9000, type: 'deco', surface: 'floor', category: 'deco', effectDesc: '순수 장식용' },
+      { id: 'castle', name: '수중 성', price: 15000, type: 'deco', surface: 'floor', category: 'deco', fishEffect: 'hiding', effectDesc: '은신처 (스트레스 감소)' },
+      { id: 'bubbler', name: '버블러', price: 4000, type: 'deco', surface: 'floor', category: 'deco', waterEffect: 0.05, effectDesc: '수질 개선 (++, 산소 공급)' },
+      { id: 'wallplant', name: '벽면 이끼', price: 3000, type: 'deco', surface: 'wall', category: 'deco', waterEffect: 0.02, effectDesc: '수질 개선 (+)' },
+      { id: 'hanging', name: '부유 장식볼', price: 3500, type: 'deco', surface: 'floating', category: 'deco', effectDesc: '순수 장식용' },
+      { id: 'floor-white', name: '흰 모래 바닥재', price: 6000, type: 'floor-style', styleId: 'white', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'floor-black', name: '블랙 사막 바닥재', price: 6000, type: 'floor-style', styleId: 'black', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'bg-reef', name: '산호초 배경', price: 8000, type: 'bg-style', styleId: 'reef', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'bg-night', name: '심해 야간 배경', price: 8000, type: 'bg-style', styleId: 'night', category: 'environment', effectDesc: '순수 장식용' },
+      { id: 'upgrade', name: '수조 크기 확장 (+5)', price: 30000, type: 'up', category: 'facility', effectDesc: '수용량 +5' }
+    ];
+    const SHOP_CATEGORIES = [
+      { key: 'deco', label: '장식물' },
+      { key: 'environment', label: '바닥·배경' },
+      { key: 'facility', label: '시설' }
     ];
 
     function createDeco(type) {
@@ -1812,14 +1832,31 @@
         document.getElementById('trade-modal').classList.add('active');
       },
       openShopModal() {
+        const header = document.getElementById('shop-tab-header');
+        header.innerHTML = SHOP_CATEGORIES.map((c, i) =>
+          `<button class="tab-btn${i===0?' active':''}" id="shop-tab-${c.key}" onclick="AquaApp.switchShopTab('${c.key}')">${c.label}</button>`
+        ).join('');
+        this._shopCategory = SHOP_CATEGORIES[0].key;
+        this.renderShopList();
+        document.getElementById('shop-modal').classList.add('active');
+      },
+      switchShopTab(category) {
+        this._shopCategory = category;
+        SHOP_CATEGORIES.forEach(c => document.getElementById(`shop-tab-${c.key}`).classList.toggle('active', c.key === category));
+        this.renderShopList();
+      },
+      renderShopList() {
         const list = document.getElementById('shop-list');
-        list.innerHTML = SHOP_DB.map(i => `
+        const items = SHOP_DB.filter(i => (i.category || 'deco') === this._shopCategory);
+        list.innerHTML = items.map(i => `
           <div class="list-item">
-            <div><b>${i.name}</b></div>
+            <div>
+              <b>${i.name}</b>
+              <div class="cond-text">${i.effectDesc || ''}</div>
+            </div>
             <button class="btn-glass btn-green" onclick="AquaApp.buyShop('${i.id}')">₩${i.price.toLocaleString()}</button>
           </div>
         `).join('');
-        document.getElementById('shop-modal').classList.add('active');
       },
       closeModal(id) { document.getElementById(id).classList.remove('active'); },
       closeOutside(e, id) { if(e.target.id === id) this.closeModal(id); },
