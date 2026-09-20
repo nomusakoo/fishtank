@@ -839,22 +839,27 @@
       }
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     }
-    // Heuristic eye-bump finder: the source meshes have no separate eye submesh, but on nearly
-    // every fish the eye is the most laterally-protruding point somewhere in the head third of the
-    // body (excluding the very tip, which is the mouth/snout). Scanning for the widest |x| vertex
-    // in that band gives a reasonable approximation without needing UVs or manual per-species
-    // coordinates. Assumes left/right bilateral symmetry, which holds for all of these models.
+    // Heuristic eye-bump finder: the source meshes have no separate eye submesh, but on every one
+    // of these fish the eye sits close behind the mouth, just above the body's horizontal midline
+    // (y > 0 in local space, which all 7 models share as roughly the swim-line). A first attempt
+    // scanned a wide 4-42% "head band" for the single widest |x| vertex, but for tapering heads
+    // (guppy/neon/cory) the body torso itself is wider than the eye bump and dominates that scan,
+    // and for cory specifically the barbels below the mouth are wider still. Restricting to a much
+    // narrower band right at the snout (2-20% of body length) and to y > 0 (excludes chin/barbel/
+    // belly vertices) reliably lands on the eye across all 7 species instead. Assumes left/right
+    // bilateral symmetry, which holds for all of these models.
     function estimateEyePosition(geometry) {
       const pos = geometry.attributes.position;
       geometry.computeBoundingBox();
       const bbox = geometry.boundingBox;
       const zSpan = (bbox.max.z - bbox.min.z) || 1;
-      const zMin = bbox.max.z - zSpan * 0.42;
-      const zMax = bbox.max.z - zSpan * 0.04;
+      const zMin = bbox.max.z - zSpan * 0.20;
+      const zMax = bbox.max.z - zSpan * 0.02;
       let best = null, bestAbsX = -Infinity;
       for (let i = 0; i < pos.count; i++) {
         const z = pos.getZ(i);
         if (z < zMin || z > zMax) continue;
+        if (pos.getY(i) < 0) continue;
         const absX = Math.abs(pos.getX(i));
         if (absX > bestAbsX) { bestAbsX = absX; best = { x: absX, y: pos.getY(i), z }; }
       }
@@ -2104,6 +2109,11 @@
           State.activeTankIndex = 0;
         }
         if(State.fishes.length===0 && !State.auction) { State.fishes.push(new Fish('GUPPY', { birthTime: Date.now() }), new Fish('GUPPY', { birthTime: Date.now() })); }
+        // initThree() ran before loadLocal() and set up the default floor/background; re-apply
+        // whatever the save actually specified now that State reflects it (fixes floor/background
+        // resetting to default on every page refresh).
+        applyFloorStyle(State.floorStyle);
+        applyBgStyle(State.bgStyle);
         State.decorations.forEach(d => Builder.spawn(d));
         this.updateUI();
         TankManager.renderSwitcher();
