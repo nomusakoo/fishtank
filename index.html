@@ -398,6 +398,22 @@
       return found;
     }
 
+    // Frees GPU-side geometry/material/texture memory for a removed object. Without this, a long
+    // play session with lots of fish churn (breeding/selling/predation/death) or repeated
+    // decoration editing would slowly leak memory since scene.remove() alone doesn't free them.
+    function disposeObject3D(obj) {
+      if (!obj) return;
+      obj.traverse(o => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+            if (m.map) m.map.dispose();
+            m.dispose();
+          });
+        }
+      });
+    }
+
     const MATURITY_MS = 10 * 60 * 1000; // 10 minutes real-time to reach adulthood
 
     function formatDuration(ms) {
@@ -839,7 +855,7 @@
           // Remove the procedural placeholder parts (body/fins/tail), keep the group itself so
           // position/velocity/quaternion logic and the hunger/sick sprites are unaffected.
           [this._proceduralBody, this._dorsal, this.tailGroup, this.finL, this.finR].forEach(o => {
-            if (o) this.group.remove(o);
+            if (o) { this.group.remove(o); disposeObject3D(o); }
           });
           this.tailGroup = null; this.finL = null; this.finR = null;
 
@@ -964,6 +980,7 @@
           const idx = foods.indexOf(targetFood);
           if (idx > -1) {
             scene.remove(targetFood.mesh);
+            disposeObject3D(targetFood.mesh);
             foods.splice(idx, 1);
             this.hunger = Math.min(100, this.hunger + 35);
             Sound.bubble();
@@ -996,7 +1013,7 @@
         this._pauseTimer = 0;
       }
 
-      destroy() { scene.remove(this.group); }
+      destroy() { scene.remove(this.group); disposeObject3D(this.group); }
     }
 
     /* ==========================================================
@@ -1199,7 +1216,7 @@
         State.money -= 1000;
         State.water.quality = Math.min(100, State.water.quality + 45);
         State.water.ph = +(7.0 - (100 - State.water.quality) * 0.03).toFixed(2);
-        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste.forEach(w => { scene.remove(w.mesh); disposeObject3D(w.mesh); });
         State.waste = [];
         Sound.init(); Sound.bubble();
         AquaApp.updateUI(); AquaApp.saveLocal();
@@ -1367,7 +1384,7 @@
         let data;
         if (this.reuseId) {
           const old = sceneFindByDecoId(this.reuseId);
-          if (old) scene.remove(old);
+          if (old) { scene.remove(old); disposeObject3D(old); }
           data = State.decorations.find(d => d.id === this.reuseId);
           data.x = this.ghost.position.x; data.y = this.ghost.position.y; data.z = this.ghost.position.z; data.rotationY = this.ghost.rotation.y;
         } else {
@@ -1388,7 +1405,7 @@
         scene.add(m);
       },
       cancel() {
-        this.active = false; scene.remove(this.ghost); this.ghost=null; this.reuseId = null;
+        this.active = false; scene.remove(this.ghost); disposeObject3D(this.ghost); this.ghost=null; this.reuseId = null;
         document.getElementById('build-overlay').style.display = 'none';
         document.getElementById('ui-layer').style.pointerEvents = 'none';
         AquaApp.updateUI();
@@ -1457,7 +1474,7 @@
         const idx = State.decorations.findIndex(d=>d.id===this.selected);
         if (idx===-1) return;
         const old = sceneFindByDecoId(this.selected);
-        if (old) scene.remove(old);
+        if (old) { scene.remove(old); disposeObject3D(old); }
         State.decorations.splice(idx,1);
         AquaApp.saveLocal();
         this.cancelSelect();
@@ -1748,6 +1765,7 @@
                  State.waste.push({ mesh: food.mesh, vy: 0 });
                } else {
                  scene.remove(food.mesh);
+                 disposeObject3D(food.mesh);
                }
                State.foods.splice(i,1);
              }
@@ -2014,11 +2032,11 @@
 
         State.fishes.forEach(f => f.destroy());
         State.fishes = [];
-        State.foods.forEach(f => scene.remove(f.mesh));
+        State.foods.forEach(f => { scene.remove(f.mesh); disposeObject3D(f.mesh); });
         State.foods = [];
-        State.waste.forEach(w => scene.remove(w.mesh));
+        State.waste.forEach(w => { scene.remove(w.mesh); disposeObject3D(w.mesh); });
         State.waste = [];
-        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) scene.remove(m); });
+        State.decorations.forEach(d => { const m = sceneFindByDecoId(d.id); if (m) { scene.remove(m); disposeObject3D(m); } });
         State.decorations = [];
         State.money = 35000;
         State.tankCapacity = 8;
